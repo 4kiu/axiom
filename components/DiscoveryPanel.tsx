@@ -294,7 +294,9 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
                 <div className="space-y-2">
                     <label className="text-[9px] font-mono text-neutral-600 uppercase tracking-widest block flex items-center justify-between">
                         Manifest Pattern
-                        <Info size={10} className="text-neutral-700 cursor-help" title="Identifies the sync file on Drive" />
+                        <span title="Identifies the sync file on Drive" className="cursor-help">
+                          <Info size={10} className="text-neutral-700" />
+                        </span>
                     </label>
                     <div className="flex bg-black/40 border border-neutral-800 rounded-lg p-2 items-center gap-2">
                         <RefreshCw size={12} className={`text-neutral-500 ${syncStatus === 'syncing' ? 'animate-spin text-emerald-500' : ''}`} />
