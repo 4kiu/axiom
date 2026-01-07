@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { 
   addDays, 
@@ -70,11 +69,11 @@ const WeeklyGrid: React.FC<WeeklyGridProps> = ({
   };
 
   return (
-    <div className="bg-[#080808] border border-neutral-800 rounded-2xl overflow-hidden relative h-full flex flex-col">
+    <div className="bg-[#0d0d0d] border border-neutral-800 rounded-2xl overflow-hidden relative h-full flex flex-col shadow-2xl">
       
-      {/* OS Grid Background Pattern */}
-      <div className="absolute inset-0 pointer-events-none opacity-[0.15]" 
-           style={{ backgroundImage: 'radial-gradient(#333 1px, transparent 1px)', backgroundSize: '24px 24px' }} 
+      {/* OS Grid Background Pattern - Subtleized */}
+      <div className="absolute inset-0 pointer-events-none opacity-[0.12]" 
+           style={{ backgroundImage: 'radial-gradient(#555 1px, transparent 1px)', backgroundSize: '24px 24px' }} 
       />
 
       <style>{`
@@ -86,24 +85,24 @@ const WeeklyGrid: React.FC<WeeklyGridProps> = ({
           transition: background-color 0.2s ease, border-color 0.2s ease;
         }
         .matrix-cell:hover {
-          background-color: rgba(255, 255, 255, 0.02);
+          background-color: rgba(255, 255, 255, 0.03);
         }
       `}</style>
 
       {/* Grid Headers */}
-      <div className="grid grid-cols-7 border-b border-neutral-800 shrink-0 bg-black relative z-10">
+      <div className="grid grid-cols-7 border-b border-neutral-800 shrink-0 bg-neutral-900/40 relative z-10">
         {days.map((day, i) => (
           <div 
             key={day.toISOString()} 
             className={`p-3 sm:p-4 text-center border-r border-neutral-800 last:border-r-0 transition-colors ${isToday(day) ? 'bg-emerald-500/5' : ''}`}
           >
-            <div className={`text-[8px] font-mono uppercase mb-1 tracking-widest ${isToday(day) ? 'text-emerald-500 font-bold' : 'text-neutral-600'}`}>
+            <div className={`text-[8px] font-mono uppercase mb-1 tracking-widest ${isToday(day) ? 'text-emerald-400 font-bold' : 'text-neutral-600'}`}>
               DAY_0{i+1}
             </div>
             <div className={`text-base sm:text-xl font-bold tracking-tight ${isToday(day) ? 'text-white' : 'text-neutral-400'}`}>
               {format(day, 'dd')}
             </div>
-            <div className={`text-[9px] font-mono uppercase mt-0.5 ${isToday(day) ? 'text-emerald-500/70' : 'text-neutral-700'}`}>
+            <div className={`text-[9px] font-mono uppercase mt-0.5 ${isToday(day) ? 'text-emerald-500/80' : 'text-neutral-700'}`}>
               {format(day, 'eee')}
             </div>
           </div>
@@ -125,14 +124,14 @@ const WeeklyGrid: React.FC<WeeklyGridProps> = ({
                   <div 
                     key={`${day.toISOString()}-${idType}`}
                     onClick={() => canLog ? onCellClick?.(day, idType) : cellEntries.length > 0 ? onEntryClick?.(cellEntries[0].id) : null}
-                    className={`p-1.5 border-r border-neutral-800 last:border-r-0 flex flex-col transition-all relative group/cell cursor-pointer matrix-cell
-                      ${!canLog && cellEntries.length === 0 ? 'opacity-[0.03] pointer-events-none' : ''}
+                    className={`p-2 border-r border-neutral-800 last:border-r-0 flex flex-col transition-all relative group/cell cursor-pointer matrix-cell
+                      ${!canLog && cellEntries.length === 0 ? 'opacity-[0.05] pointer-events-none' : ''}
                     `}
                   >
                     {/* Ghost Icon for Log Intent */}
                     {cellEntries.length === 0 && canLog && (
                       <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/cell:opacity-100 transition-opacity">
-                        <Plus size={16} className="text-neutral-700" />
+                        <Plus size={16} className="text-neutral-600" />
                       </div>
                     )}
                     
@@ -145,14 +144,14 @@ const WeeklyGrid: React.FC<WeeklyGridProps> = ({
                         <div 
                           key={entry.id}
                           onClick={(e) => { e.stopPropagation(); onEntryClick?.(entry.id); }} 
-                          className={`group/entry relative p-2 rounded-xl border text-left transition-all h-full flex flex-col justify-between
+                          className={`group/entry relative p-2.5 rounded-xl border text-left transition-all h-full flex flex-col justify-between
                             ${meta.color} ${meta.borderColor} ${meta.textColor}
                             ${animationClass}
-                            hover:brightness-110 active:scale-[0.98]
+                            hover:brightness-110 active:scale-[0.98] shadow-lg
                           `}
                         >
                           <div className="relative z-10">
-                            <div className="flex justify-between items-center opacity-70 mb-1">
+                            <div className="flex justify-between items-center opacity-80 mb-1">
                                 <span className="text-[8px] font-mono font-bold tracking-tight">{format(new Date(entry.timestamp), 'HH:mm')}</span>
                                 {isOverdrive && <Sparkles size={10} className="text-white" />}
                             </div>
@@ -165,7 +164,7 @@ const WeeklyGrid: React.FC<WeeklyGridProps> = ({
                             <div className="flex gap-1">
                               {muscleTypes.slice(0, 2).map((m, i) => (
                                 <div key={i} className="bg-black/20 p-1 rounded-md">
-                                  <MuscleIcon type={m} className="w-2.5 h-2.5 opacity-80" />
+                                  <MuscleIcon type={m} className="w-2.5 h-2.5 opacity-90" />
                                 </div>
                               ))}
                             </div>
@@ -173,7 +172,7 @@ const WeeklyGrid: React.FC<WeeklyGridProps> = ({
                               {[...Array(5)].map((_, i) => (
                                 <div 
                                   key={i} 
-                                  className={`w-1 h-1 rounded-full ${i < entry.energy ? 'bg-white' : 'bg-white/20'}`} 
+                                  className={`w-1 h-1 rounded-full ${i < entry.energy ? 'bg-white' : 'bg-white/30'}`} 
                                 />
                               ))}
                             </div>
