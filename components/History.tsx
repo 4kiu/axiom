@@ -1,8 +1,8 @@
 
 import React, { useState } from 'react';
-import { WorkoutEntry, WorkoutPlan } from '../types';
+import { WorkoutEntry, WorkoutPlan } from '../types.ts';
 import { format, addDays } from 'date-fns';
-import WeeklyGrid from './WeeklyGrid';
+import WeeklyGrid from './WeeklyGrid.tsx';
 import { ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
 
 // Fix: Local implementation of startOfWeek as it was missing from date-fns export

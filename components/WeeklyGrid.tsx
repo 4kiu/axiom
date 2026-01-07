@@ -6,9 +6,9 @@ import {
   isSameDay, 
   isToday
 } from 'date-fns';
-import { IdentityState, WorkoutEntry, IDENTITY_METADATA, WorkoutPlan } from '../types';
+import { IdentityState, WorkoutEntry, IDENTITY_METADATA, WorkoutPlan } from '../types.ts';
 import { Plus } from 'lucide-react';
-import { MuscleIcon } from './PlanBuilder';
+import { MuscleIcon } from './PlanBuilder.tsx';
 
 // Fix: Local implementation of startOfDay
 const startOfDay = (date: Date | number) => {

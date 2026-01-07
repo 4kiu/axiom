@@ -1,13 +1,13 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { IdentityState, WorkoutEntry, IDENTITY_METADATA, WorkoutPlan } from './types';
-import WeeklyGrid from './components/WeeklyGrid';
-import LogAction from './components/LogAction';
-import StatusPanel from './components/StatusPanel';
-import PointsCard from './components/PointsCard';
-import History from './components/History';
-import DiscoveryPanel from './components/DiscoveryPanel';
-import PlanBuilder from './components/PlanBuilder';
+import { IdentityState, WorkoutEntry, IDENTITY_METADATA, WorkoutPlan } from './types.ts';
+import WeeklyGrid from './components/WeeklyGrid.tsx';
+import LogAction from './components/LogAction.tsx';
+import StatusPanel from './components/StatusPanel.tsx';
+import PointsCard from './components/PointsCard.tsx';
+import History from './components/History.tsx';
+import DiscoveryPanel from './components/DiscoveryPanel.tsx';
+import PlanBuilder from './components/PlanBuilder.tsx';
 import { 
   LayoutDashboard, 
   History as HistoryIcon, 
