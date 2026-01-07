@@ -50,9 +50,10 @@ const PointsCard: React.FC<PointsCardProps> = ({ entries, weekStart }) => {
     else if (odCount >= 3) odPoints = odCount * 25;
     else odPoints = odCount * 15;
 
-    // Normal Streak Logic:
-    // Only NORMAL identity increments. 
-    // Overdrive, Maintenance, Survival, Rest and empty logs break/reset the streak.
+    // Normal Streak Logic v1.7.5:
+    // - Only NORMAL identity increments the streak counter. 
+    // - Overdrive acts as a bridge: it does NOT break the streak, but also doesn't increment it.
+    // - Other states (Maintenance, Survival, Rest) and empty logs break/reset the streak.
     const dayMap = new Map();
     weekEntries.forEach(e => {
         const d = new Date(e.timestamp).toDateString();
@@ -66,8 +67,11 @@ const PointsCard: React.FC<PointsCardProps> = ({ entries, weekStart }) => {
         if (identity === IdentityState.NORMAL) {
             currentStreak++;
             maxNormalStreak = Math.max(maxNormalStreak, currentStreak);
+        } else if (identity === IdentityState.OVERDRIVE) {
+            // Overdrive is a bridge. We don't increment, but we don't reset.
+            // currentStreak remains unchanged.
         } else {
-            // Any state other than NORMAL (or no entry) resets the streak
+            // Maintenance, Survival, Rest, or no entry resets the streak
             currentStreak = 0;
         }
     }
