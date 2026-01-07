@@ -17,7 +17,9 @@ import {
   Trash2,
   AlertCircle,
   BookOpen,
-  Check
+  Check,
+  Edit3,
+  Cpu
 } from 'lucide-react';
 import { isSameDay, format } from 'date-fns';
 import { MuscleIcon } from './PlanBuilder.tsx';
@@ -133,7 +135,7 @@ const LogAction: React.FC<LogActionProps> = ({
         onClick={() => setSelectedIdentity(id)}
         className={`relative flex flex-col p-4 rounded-xl border text-left transition-all overflow-hidden
           ${isDisabled ? 'opacity-40 grayscale cursor-not-allowed border-neutral-800' : 
-            isSelected ? `${meta.borderColor} ${meta.color} shadow-lg shadow-${meta.color.split('-')[1]}/20` : 
+            isSelected ? `${meta.borderColor} ${meta.color} shadow-lg shadow-${meta.color.split('-')[1]}/20 scale-[1.02]` : 
             'bg-neutral-900 border-neutral-800 hover:border-neutral-700'
           }
         `}
@@ -148,7 +150,7 @@ const LogAction: React.FC<LogActionProps> = ({
         <div className={`text-sm font-bold ${isSelected ? 'text-white' : 'text-neutral-200'}`}>
           {meta.label}
         </div>
-        <div className={`text-[10px] mt-1 ${isSelected ? 'text-white/80' : 'text-neutral-500'}`}>
+        <div className={`text-[10px] mt-1 ${isSelected ? 'text-white/80' : 'text-neutral-500'} font-mono`}>
           {meta.duration}
         </div>
       </button>
@@ -157,17 +159,26 @@ const LogAction: React.FC<LogActionProps> = ({
 
   return (
     <div className="flex flex-col h-full max-h-[90vh]">
-      <div className="flex justify-between items-center p-6 border-b border-neutral-800">
-        <div>
-          <h2 className="text-xl font-bold text-white flex items-center gap-2">
-            <Activity className="text-emerald-500" /> 
-            {editingEntry ? 'Edit Session' : 'Training Entry'}
-          </h2>
-          <p className="text-xs text-neutral-500 font-mono mt-1">AXIOM_LOG_SEQUENCE.00{editingEntry ? '2' : '1'}</p>
+      <div className={`flex justify-between items-center p-6 border-b border-neutral-800 transition-colors ${editingEntry ? 'bg-amber-500/5' : 'bg-transparent'}`}>
+        <div className="flex items-center gap-4">
+          <div className={`p-2 rounded-xl border ${editingEntry ? 'bg-amber-500/10 border-amber-500/20 text-amber-500' : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500'}`}>
+            {editingEntry ? <Edit3 size={20} /> : <Activity size={20} />}
+          </div>
+          <div>
+            <h2 className="text-xl font-bold text-white flex items-center gap-2">
+              {editingEntry ? 'Edit Identity Session' : 'Training Entry'}
+            </h2>
+            <div className="flex items-center gap-2 mt-1">
+               <Cpu size={10} className="text-neutral-600" />
+               <p className="text-[9px] text-neutral-500 font-mono uppercase tracking-widest">
+                 {editingEntry ? `MODIFY_SEQ: ${editingEntry.id.substring(0,8)}` : 'AXIOM_LOG_SEQUENCE.001'}
+               </p>
+            </div>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           {editingEntry && (
-             <button onClick={handleDelete} className="p-2 hover:bg-rose-950/40 rounded-full transition-colors group">
+             <button onClick={handleDelete} className="p-2 hover:bg-rose-950/40 rounded-full transition-colors group" title="Purge Record">
               <Trash2 size={18} className="text-neutral-600 group-hover:text-rose-500" />
             </button>
           )}
@@ -294,7 +305,7 @@ const LogAction: React.FC<LogActionProps> = ({
         <section>
           <label className="text-[10px] font-mono text-neutral-500 uppercase tracking-widest block mb-3">Notes / Logs</label>
           <textarea 
-            className="w-full bg-neutral-900 border border-neutral-800 rounded-xl p-4 text-sm text-neutral-200 focus:outline-none focus:border-neutral-600 min-h-[100px] placeholder-neutral-700"
+            className="w-full bg-neutral-900 border border-neutral-800 rounded-xl p-4 text-sm text-neutral-200 focus:outline-none focus:border-neutral-600 min-h-[100px] placeholder-neutral-700 font-sans"
             placeholder="Document technical patterns or fatigue specifics..."
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
@@ -306,15 +317,15 @@ const LogAction: React.FC<LogActionProps> = ({
         <button
           onClick={handleSave}
           disabled={selectedIdentity === null || dateCollision}
-          className={`w-full py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all
+          className={`w-full py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all group/btn
             ${selectedIdentity !== null && !dateCollision
-              ? 'bg-neutral-100 text-black hover:bg-white cursor-pointer active:scale-95' 
+              ? editingEntry ? 'bg-amber-500 text-black hover:bg-amber-400' : 'bg-neutral-100 text-black hover:bg-white' 
               : 'bg-neutral-800 text-neutral-600 cursor-not-allowed'
             }
           `}
         >
-          <Shield size={18} />
-          {editingEntry ? 'Apply Changes' : 'Commit to Identity'}
+          <Shield size={18} className="group-hover/btn:scale-110 transition-transform" />
+          {editingEntry ? 'Synchronize Updates' : 'Commit to Identity'}
         </button>
       </div>
     </div>

@@ -1,8 +1,8 @@
 
 import React, { useMemo } from 'react';
-import { WorkoutEntry, IdentityState, IDENTITY_METADATA } from '../types';
-import { Trophy, Star, TrendingUp, Zap } from 'lucide-react';
-import { isSameDay, addDays } from 'date-fns';
+import { WorkoutEntry, IdentityState } from '../types';
+import { Trophy, Star, Zap } from 'lucide-react';
+import { addDays } from 'date-fns';
 
 interface PointsCardProps {
   entries: WorkoutEntry[];
@@ -35,7 +35,7 @@ const PointsCard: React.FC<PointsCardProps> = ({ entries, weekStart }) => {
       } else if (e.identity === IdentityState.SURVIVAL) {
         basePoints += 3;
       } else if (e.identity === IdentityState.REST) {
-        basePoints += 0; // Rest provides 0 XP but maintains streak
+        basePoints += 0;
       }
     });
 
@@ -55,12 +55,15 @@ const PointsCard: React.FC<PointsCardProps> = ({ entries, weekStart }) => {
     for (let i = 0; i < 7; i++) {
         const d = addDays(weekStart, i).toDateString();
         const id = dayMap.get(d);
-        // Note: For XP bonus, we only count 'Normal' days as streak-building.
-        // Rest preserves the system integrity streak, but for XP bonus we keep it stricter.
+        
         if (id === IdentityState.NORMAL) {
             currentStreak++;
             maxNormalStreak = Math.max(maxNormalStreak, currentStreak);
+        } else if (id === IdentityState.OVERDRIVE) {
+            // Overdrive is a bridge: it doesn't increment the 'Normal' count
+            // but it preserves the continuity of the streak per user requirement.
         } else {
+            // Maintenance, Survival, Rest or no entry breaks the streak
             currentStreak = 0;
         }
     }
@@ -83,7 +86,6 @@ const PointsCard: React.FC<PointsCardProps> = ({ entries, weekStart }) => {
 
   return (
     <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6 flex flex-col justify-between relative overflow-hidden group">
-      {/* Background Decor */}
       <div className="absolute top-0 right-0 -mr-4 -mt-4 opacity-[0.03] group-hover:opacity-[0.07] transition-opacity">
         <Trophy size={120} />
       </div>

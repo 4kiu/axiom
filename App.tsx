@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { IdentityState, WorkoutEntry, IDENTITY_METADATA, WorkoutPlan } from './types.ts';
 import WeeklyGrid from './components/WeeklyGrid.tsx';
@@ -20,7 +19,6 @@ import {
   RotateCcw,
   Calendar,
   Edit3,
-  Download,
   Github,
   Zap
 } from 'lucide-react';
@@ -75,26 +73,6 @@ const App: React.FC = () => {
   const [dashboardWeekOffset, setDashboardWeekOffset] = useState(0);
   const [preselectedLogData, setPreselectedLogData] = useState<{ date?: Date, identity?: IdentityState, editingEntry?: WorkoutEntry } | null>(null);
   
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-
-  useEffect(() => {
-    const handler = (e: any) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
-    };
-    window.addEventListener('beforeinstallprompt', handler);
-    return () => window.removeEventListener('beforeinstallprompt', handler);
-  }, []);
-
-  const handleInstallClick = async () => {
-    if (!deferredPrompt) return;
-    deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === 'accepted') {
-      setDeferredPrompt(null);
-    }
-  };
-
   const [isNavVisible, setIsNavVisible] = useState(true);
   const lastScrollY = useRef(0);
 
@@ -209,11 +187,6 @@ const App: React.FC = () => {
                       ))}
                     </div>
                     <div className="mt-auto">
-                      {deferredPrompt && (
-                        <div className="mb-6 pt-4 border-t border-neutral-800">
-                          <button onClick={handleInstallClick} className="w-full flex items-center justify-center gap-2 py-2.5 bg-neutral-100 hover:bg-white text-black text-xs font-bold rounded-lg transition-all"><Download size={14} /> Install Axiom</button>
-                        </div>
-                      )}
                       <div className="pt-4 border-t border-neutral-800 mb-6">
                         <div className="text-[11px] font-mono text-neutral-400 bg-black/40 px-3 py-2 rounded border border-neutral-800 flex items-center gap-2">
                           <Calendar size={12} className="text-neutral-600" /> {format(dashboardWeekStart, 'MMM dd')} — {format(addDays(dashboardWeekStart, 7), 'MMM dd')}
@@ -236,7 +209,7 @@ const App: React.FC = () => {
                   <h3 className="text-sm font-mono text-neutral-500 uppercase tracking-widest mb-2">System Rules</h3>
                   <ul className="text-xs space-y-3 text-neutral-400">
                     <li className="flex gap-2"><ShieldAlert size={14} className="text-rose-500 shrink-0" /><span>Logging is restricted to 1 entry per day to ensure mapping fidelity.</span></li>
-                    <li className="flex gap-2"><Zap size={14} className="text-violet-500 shrink-0" /><span>Overdrive cannot be selected on consecutive days. Recovery is mandatory.</span></li>
+                    <li className="flex gap-2"><Zap size={14} className="text-violet-500 shrink-0" /><span>Performance streaks are sustained by Normal/Overdrive. Maintenance/Rest/Survival break the streak.</span></li>
                   </ul>
                 </div>
                 <button onClick={() => todayHasEntry ? handleEditEntry(todayEntry!.id) : setIsLogModalOpen(true)} className="mt-6 w-full py-3 bg-neutral-100 hover:bg-white text-black font-bold rounded-lg transition-colors flex items-center justify-center gap-2">
@@ -249,7 +222,14 @@ const App: React.FC = () => {
         )}
         {view === 'plans' && <PlanBuilder plans={plans} onUpdatePlans={handleUpdatePlans} />}
         {view === 'history' && <History entries={entries} plans={plans} onEditEntry={handleEditEntry} />}
-        {view === 'discovery' && <DiscoveryPanel entries={entries} />}
+        {view === 'discovery' && (
+          <DiscoveryPanel 
+            entries={entries} 
+            plans={plans} 
+            onUpdateEntries={setEntries} 
+            onUpdatePlans={setPlans} 
+          />
+        )}
       </main>
       <nav className={`sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#0a0a0a]/95 backdrop-blur-xl border-t border-neutral-800 px-6 py-4 flex justify-between items-center transition-transform duration-300 ease-in-out ${isNavVisible ? 'translate-y-0' : 'translate-y-full'}`}><NavItems /></nav>
       {isLogModalOpen && (

@@ -1,19 +1,144 @@
-
-import React, { useState } from 'react';
-import { WorkoutEntry, IdentityState } from '../types.ts';
+import React, { useState, useEffect } from 'react';
+import { WorkoutEntry, IdentityState, WorkoutPlan } from '../types.ts';
 import { GoogleGenAI } from '@google/genai';
-import { BrainCircuit, Loader2, BarChart3, TrendingUp, ShieldCheck } from 'lucide-react';
+import { 
+  BrainCircuit, 
+  Loader2, 
+  BarChart3, 
+  TrendingUp, 
+  ShieldCheck, 
+  Cloud, 
+  CloudOff, 
+  UploadCloud, 
+  DownloadCloud, 
+  RefreshCw,
+  Link,
+  Info
+} from 'lucide-react';
+import { format } from 'date-fns';
 
-// Declare global process for browser shims to satisfy TypeScript build check
-declare const process: { env: { API_KEY: string } };
+declare const google: any;
+
+const GOOGLE_CLIENT_ID = "616049430156-f63v84313t12t84313t12t.apps.googleusercontent.com";
 
 interface DiscoveryPanelProps {
   entries: WorkoutEntry[];
+  plans: WorkoutPlan[];
+  onUpdateEntries: (entries: WorkoutEntry[]) => void;
+  onUpdatePlans: (plans: WorkoutPlan[]) => void;
 }
 
-const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({ entries }) => {
+const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({ 
+  entries, 
+  plans, 
+  onUpdateEntries, 
+  onUpdatePlans 
+}) => {
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'loading' | 'success' | 'error'>('idle');
+  const [customSyncName, setCustomSyncName] = useState(() => `sync.${format(new Date(), 'ss.mm.HH.dd.MM.yyyy')}`);
+
+  useEffect(() => {
+    setCustomSyncName(`sync.${format(new Date(), 'ss.mm.HH.dd.MM.yyyy')}`);
+  }, []);
+
+  const loginWithGoogle = () => {
+    try {
+      if (typeof google !== 'undefined') {
+        const client = google.accounts.oauth2.initTokenClient({
+          client_id: GOOGLE_CLIENT_ID,
+          scope: 'https://www.googleapis.com/auth/drive.file',
+          callback: (response: any) => {
+            if (response.access_token) {
+              setAccessToken(response.access_token);
+              setSyncStatus('success');
+            }
+          },
+        });
+        client.requestAccessToken();
+      } else {
+        alert("Cloud provider (GSI) not loaded. Please check connectivity.");
+      }
+    } catch (e) {
+      console.error("GSI Init Error:", e);
+      setSyncStatus('error');
+    }
+  };
+
+  const performSync = async () => {
+    if (!accessToken) return loginWithGoogle();
+    setSyncStatus('syncing');
+    
+    try {
+      const manifest = {
+        version: '1.6',
+        timestamp: Date.now(),
+        data: { entries, plans }
+      };
+
+      const fileContent = JSON.stringify(manifest);
+      const metadata = {
+        name: `${customSyncName}.json`,
+        mimeType: 'application/json',
+      };
+
+      const form = new FormData();
+      form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+      form.append('file', new Blob([fileContent], { type: 'application/json' }));
+
+      const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+        body: form,
+      });
+
+      if (response.ok) {
+        setSyncStatus('success');
+        setTimeout(() => setSyncStatus('idle'), 3000);
+      } else {
+        throw new Error('Upload failed');
+      }
+    } catch (e) {
+      console.error(e);
+      setSyncStatus('error');
+    }
+  };
+
+  const loadLatestSync = async () => {
+    if (!accessToken) return loginWithGoogle();
+    setSyncStatus('loading');
+
+    try {
+      const listResponse = await fetch('https://www.googleapis.com/drive/v3/files?q=name contains "sync." and name contains ".json"&orderBy=createdTime desc&pageSize=1', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const listData = await listResponse.json();
+
+      if (listData.files && listData.files.length > 0) {
+        const fileId = listData.files[0].id;
+        const fileResponse = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        const manifest = await fileResponse.json();
+
+        if (manifest.data) {
+          onUpdateEntries(manifest.data.entries || []);
+          onUpdatePlans(manifest.data.plans || []);
+          setSyncStatus('success');
+          alert(`Neural Link Restored: ${listData.files[0].name}`);
+          setTimeout(() => setSyncStatus('idle'), 3000);
+        }
+      } else {
+        alert("No cloud manifests detected.");
+        setSyncStatus('idle');
+      }
+    } catch (e) {
+      console.error(e);
+      setSyncStatus('error');
+    }
+  };
 
   const performDiscovery = async () => {
     if (entries.length < 3) {
@@ -23,38 +148,18 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({ entries }) => {
 
     setLoading(true);
     try {
-      // Use the Google GenAI SDK to analyze logs.
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const prompt = `
-        Analyze these training logs from AxiomOS (a high-performance training operating system).
-        The user uses identity states: 0 (Overdrive), 1 (Normal), 2 (Maintenance), 3 (Survival).
-        
-        Logs:
-        ${JSON.stringify(entries.map(e => ({
-          date: new Date(e.timestamp).toDateString(),
-          id: IdentityState[e.identity],
-          energy: e.energy,
-          tags: e.tags,
-          notes: e.notes
-        })), null, 2)}
-
-        Task: 
-        1. Identify correlations between tags (like 'stress' or 'exams') and identity states.
-        2. Look for "identity decay" or successful "survival mode" bridging.
-        3. Provide 3 specific, non-motivational, technical insights based ONLY on the data.
-        Keep it concise, professional, and clinical.
-      `;
-
-      // Complex reasoning task: using 'gemini-3-pro-preview' for advanced pattern analysis as per guidelines.
+      const prompt = `Act as an elite sports scientist. Analyze these training logs for patterns, fatigue accumulation, and identity state transitions. Provide a concise executive summary of the trainee's current performance trajectory. Data: ${JSON.stringify(entries.slice(-15))}`;
+      
       const response = await ai.models.generateContent({
         model: 'gemini-3-pro-preview',
         contents: prompt
       });
-
+      
       setAnalysis(response.text || "Discovery engine returned no insights.");
     } catch (error) {
       console.error(error);
-      setAnalysis("Error initializing discovery engine. Check environment configuration.");
+      setAnalysis("Error initializing discovery engine.");
     } finally {
       setLoading(false);
     }
@@ -82,35 +187,37 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({ entries }) => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="md:col-span-2 bg-neutral-900 border border-neutral-800 rounded-2xl p-8 min-h-[400px]">
-          {loading ? (
-            <div className="h-full flex flex-col items-center justify-center space-y-4">
-              <div className="relative">
-                <div className="w-16 h-16 border-4 border-violet-500/20 rounded-full border-t-violet-500 animate-spin" />
-                <BrainCircuit className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-violet-500" size={24} />
+        <div className="md:col-span-2">
+          <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-8 min-h-[400px] relative overflow-hidden h-full shadow-2xl">
+            {loading ? (
+              <div className="h-full flex flex-col items-center justify-center space-y-4">
+                <div className="relative">
+                  <div className="w-16 h-16 border-4 border-violet-500/20 rounded-full border-t-violet-500 animate-spin" />
+                  <BrainCircuit className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-violet-500" size={24} />
+                </div>
+                <div className="text-sm font-mono text-neutral-500 animate-pulse">Scanning identity matrices...</div>
               </div>
-              <div className="text-sm font-mono text-neutral-500 animate-pulse">Scanning identity matrices...</div>
-            </div>
-          ) : analysis ? (
-            <div className="prose prose-invert max-w-none">
-              <div className="text-[10px] font-mono text-violet-400 uppercase tracking-widest mb-4">Discovery Results v1.0</div>
-              <div className="whitespace-pre-wrap text-neutral-300 leading-relaxed font-sans text-sm md:text-base">
-                {analysis}
+            ) : analysis ? (
+              <div className="prose prose-invert max-w-none relative z-10">
+                <div className="text-[10px] font-mono text-violet-400 uppercase tracking-widest mb-4">Discovery Results v1.1</div>
+                <div className="whitespace-pre-wrap text-neutral-300 leading-relaxed font-sans text-sm md:text-base">
+                  {analysis}
+                </div>
               </div>
-            </div>
-          ) : (
-            <div className="h-full flex flex-col items-center justify-center text-center space-y-4 opacity-50">
-              <BarChart3 size={48} className="text-neutral-700" />
-              <div>
-                <p className="text-neutral-400">System idle. No active patterns detected.</p>
-                <p className="text-[10px] font-mono text-neutral-600 mt-2 uppercase tracking-tighter">Requires manual initialization</p>
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center text-center space-y-4 opacity-50">
+                <BarChart3 size={48} className="text-neutral-700" />
+                <div>
+                  <p className="text-neutral-400">System idle. No active patterns detected.</p>
+                  <p className="text-[10px] font-mono text-neutral-600 mt-2 uppercase tracking-tighter">Requires manual initialization</p>
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
         <div className="space-y-4">
-          <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-5">
+          <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-5 shadow-xl">
             <h3 className="text-xs font-mono text-neutral-500 uppercase tracking-widest mb-3 flex items-center gap-2">
               <ShieldCheck size={14} className="text-emerald-500" />
               Continuity Score
@@ -119,20 +226,68 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({ entries }) => {
             <div className="w-full h-1 bg-neutral-800 rounded-full overflow-hidden">
                <div className="w-[94%] h-full bg-emerald-500" />
             </div>
-            <p className="text-[10px] text-neutral-500 mt-3 italic">Identity integrity remains high during stress periods.</p>
           </div>
 
-          <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-5">
-            <h3 className="text-xs font-mono text-neutral-500 uppercase tracking-widest mb-3">Top Context Friction</h3>
-            <div className="space-y-3">
-              <div className="flex justify-between items-center">
-                <span className="text-xs font-mono text-neutral-300 uppercase">Stress</span>
-                <span className="text-xs font-bold text-neutral-500">12 Instances</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-xs font-mono text-neutral-300 uppercase">Exams</span>
-                <span className="text-xs font-bold text-neutral-500">4 Instances</span>
-              </div>
+          <div className="bg-violet-900/10 border border-violet-800/30 rounded-xl p-5 shadow-xl">
+             <div className="flex items-center gap-2 mb-2">
+                <RefreshCw size={12} className="text-violet-400" />
+                <span className="text-[10px] font-mono text-violet-400 uppercase font-bold">Auto-link</span>
+             </div>
+             <p className="text-[10px] text-neutral-400">Drive sync ensures your identity matrix follows you across terminals.</p>
+          </div>
+
+          <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-5 relative group overflow-hidden shadow-xl">
+            <div className="absolute top-0 left-0 w-1 h-full bg-emerald-500/50 group-hover:bg-emerald-500 transition-all" />
+            
+            <div className="flex justify-between items-start mb-4">
+                <div>
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                        {accessToken ? <Cloud className="text-emerald-500" size={16} /> : <CloudOff className="text-neutral-600" size={16} />}
+                        System Sync
+                    </h3>
+                </div>
+                {!accessToken && (
+                    <button 
+                        onClick={loginWithGoogle}
+                        className="px-2 py-1 bg-neutral-100 hover:bg-white text-black text-[9px] font-bold rounded transition-all flex items-center gap-1 uppercase"
+                    >
+                        <Link size={10} /> Link
+                    </button>
+                )}
+            </div>
+
+            <div className="space-y-4">
+                <div className="space-y-2">
+                    <label className="text-[9px] font-mono text-neutral-600 uppercase tracking-widest block">Manifest Pattern</label>
+                    <div className="flex bg-black/40 border border-neutral-800 rounded-lg p-2 items-center gap-2">
+                        <RefreshCw size={12} className={`text-neutral-500 ${syncStatus === 'syncing' ? 'animate-spin text-emerald-500' : ''}`} />
+                        <input 
+                            type="text"
+                            value={customSyncName}
+                            onChange={(e) => setCustomSyncName(e.target.value)}
+                            className="bg-transparent border-none text-[10px] font-mono text-neutral-300 focus:ring-0 flex-1 p-0"
+                        />
+                    </div>
+                </div>
+
+                <div className="flex flex-col gap-2">
+                    <button 
+                        onClick={performSync}
+                        disabled={syncStatus === 'syncing' || !accessToken}
+                        className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-30 text-white rounded-lg font-bold text-[10px] flex items-center justify-center gap-2 transition-all"
+                    >
+                        <UploadCloud size={14} /> 
+                        {syncStatus === 'syncing' ? 'Syncing...' : 'Manual Sync'}
+                    </button>
+                    <button 
+                        onClick={loadLatestSync}
+                        disabled={syncStatus === 'loading' || !accessToken}
+                        className="w-full py-2 bg-neutral-800 hover:bg-neutral-700 disabled:opacity-30 text-white rounded-lg font-bold text-[10px] flex items-center justify-center gap-2 transition-all"
+                    >
+                        <DownloadCloud size={14} /> 
+                        {syncStatus === 'loading' ? 'Loading...' : 'Load Latest'}
+                    </button>
+                </div>
             </div>
           </div>
         </div>

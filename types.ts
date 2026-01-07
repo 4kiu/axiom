@@ -49,39 +49,39 @@ export const IDENTITY_METADATA = {
     color: 'bg-violet-600',
     borderColor: 'border-violet-500',
     textColor: 'text-violet-100',
-    description: 'High performance peak state. Unlocked post-completion only.',
-    duration: '60m+'
+    description: 'Peak state. Sustains normal streaks without resetting them.',
+    duration: '120m+'
   },
   [IdentityState.NORMAL]: {
     label: 'Normal',
     color: 'bg-emerald-600',
     borderColor: 'border-emerald-500',
     textColor: 'text-emerald-100',
-    description: 'Standard volume and intensity.',
-    duration: '45-60m'
+    description: 'Standard volume. The primary driver for performance streaks.',
+    duration: '80-120m'
   },
   [IdentityState.MAINTENANCE]: {
     label: 'Maintenance',
     color: 'bg-amber-600',
     borderColor: 'border-amber-500',
     textColor: 'text-amber-100',
-    description: 'Preserving baseline capacity.',
-    duration: '30-45m'
+    description: 'Preserving baseline. Breaks performance streaks.',
+    duration: '40-80m'
   },
   [IdentityState.SURVIVAL]: {
     label: 'Survival',
     color: 'bg-rose-600',
     borderColor: 'border-rose-500',
     textColor: 'text-rose-100',
-    description: 'Minimum dose. Does not sustain high-performance streaks.',
-    duration: '10-20m'
+    description: 'Minimum dose. Breaks performance streaks.',
+    duration: '20-40m'
   },
   [IdentityState.REST]: {
     label: 'Rest',
     color: 'bg-neutral-600',
     borderColor: 'border-neutral-500',
     textColor: 'text-neutral-100',
-    description: 'Strategic recovery. Sustains continuity with 0 XP load.',
+    description: 'Strategic recovery. Breaks performance streaks.',
     duration: '0m'
   }
 };
