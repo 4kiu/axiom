@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { WorkoutPlan, Exercise } from '../types';
 import { 
@@ -11,11 +10,11 @@ import {
   X,
   FileText,
   BookOpen,
-  ChevronDown
+  ChevronDown,
+  Activity
 } from 'lucide-react';
 
 // Custom SVG Icons for Muscle Groups
-// Fix: Use React.FC to ensure standard React props like 'key' are recognized correctly by the TypeScript compiler
 export const MuscleIcon: React.FC<{ type: string, className?: string }> = ({ type, className = "w-5 h-5" }) => {
   const icons: Record<string, React.ReactNode> = {
     'Chest': (
@@ -114,9 +113,10 @@ const MUSCLE_GROUPS = [
 interface PlanBuilderProps {
   plans: WorkoutPlan[];
   onUpdatePlans: (plans: WorkoutPlan[]) => void;
+  onLogPlan?: (planId: string) => void;
 }
 
-const PlanBuilder: React.FC<PlanBuilderProps> = ({ plans, onUpdatePlans }) => {
+const PlanBuilder: React.FC<PlanBuilderProps> = ({ plans, onUpdatePlans, onLogPlan }) => {
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [activePicker, setActivePicker] = useState<string | null>(null); // Exercise ID
@@ -127,11 +127,14 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({ plans, onUpdatePlans }) => {
     exercises: []
   });
 
+  // Intermediate input state to handle typing decimals naturally
+  const [inputStates, setInputStates] = useState<Record<string, string>>({});
+
   const startNewPlan = () => {
     setIsCreating(true);
     setTempPlan({
       id: crypto.randomUUID(),
-      name: 'New Training Blueprint',
+      name: 'New Blueprint',
       description: '',
       exercises: [],
       createdAt: Date.now()
@@ -151,6 +154,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({ plans, onUpdatePlans }) => {
     
     setIsCreating(false);
     setEditingPlanId(null);
+    setInputStates({});
   };
 
   const deletePlan = (id: string) => {
@@ -182,6 +186,28 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({ plans, onUpdatePlans }) => {
     }));
   };
 
+  const updateNumericField = (exerciseId: string, field: keyof Exercise, val: string) => {
+    // Only allow digits and a single dot
+    const filtered = val.replace(/[^0-9.]/g, '');
+    const dotCount = (filtered.match(/\./g) || []).length;
+    if (dotCount > 1) return;
+
+    // Track visual state locally so user can type "0." or "10."
+    const stateKey = `${exerciseId}-${field}`;
+    setInputStates(prev => ({ ...prev, [stateKey]: filtered }));
+
+    if (field === 'reps') {
+      updateExercise(exerciseId, { reps: filtered });
+    } else {
+      const parsed = parseFloat(filtered);
+      if (!isNaN(parsed)) {
+        updateExercise(exerciseId, { [field]: parsed });
+      } else if (filtered === '') {
+        updateExercise(exerciseId, { [field]: 0 });
+      }
+    }
+  };
+
   const removeExercise = (exerciseId: string) => {
     setTempPlan(prev => ({
       ...prev,
@@ -208,6 +234,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({ plans, onUpdatePlans }) => {
             <input 
               type="text"
               value={tempPlan.name}
+              onFocus={(e) => e.target.select()}
               onChange={(e) => setTempPlan({ ...tempPlan, name: e.target.value })}
               className="bg-transparent border-none text-2xl font-bold text-white focus:ring-0 w-full placeholder-neutral-700"
               placeholder="Blueprint Name..."
@@ -217,11 +244,11 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({ plans, onUpdatePlans }) => {
               value={tempPlan.description}
               onChange={(e) => setTempPlan({ ...tempPlan, description: e.target.value })}
               className="bg-transparent border-none text-sm text-neutral-500 font-mono w-full focus:ring-0"
-              placeholder="System objective / phase details..."
+              placeholder="System objective"
             />
           </div>
           <div className="flex gap-2">
-            <button onClick={() => { setIsCreating(false); setEditingPlanId(null); }} className="p-2 text-neutral-500 hover:text-white transition-colors">
+            <button onClick={() => { setIsCreating(false); setEditingPlanId(null); setInputStates({}); }} className="p-2 text-neutral-500 hover:text-white transition-colors">
               <X size={20} />
             </button>
             <button onClick={savePlan} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-transform active:scale-95">
@@ -235,7 +262,6 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({ plans, onUpdatePlans }) => {
           {tempPlan.exercises?.map((ex, index) => (
             <div key={ex.id} className="bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden flex flex-col group relative">
               
-              {/* Muscle Picker Overlay (Centered and Bigger) */}
               {activePicker === ex.id && (
                 <div className="absolute inset-0 z-50 bg-neutral-950/95 backdrop-blur-md p-4 flex flex-col animate-in fade-in zoom-in-95 duration-200">
                   <div className="flex justify-between items-center mb-4">
@@ -292,6 +318,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({ plans, onUpdatePlans }) => {
                 <input 
                   type="text"
                   value={ex.name}
+                  onFocus={(e) => e.target.select()}
                   onChange={(e) => updateExercise(ex.id, { name: e.target.value })}
                   className="bg-transparent border-none p-0 text-sm font-bold text-white w-full focus:ring-0"
                 />
@@ -313,9 +340,11 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({ plans, onUpdatePlans }) => {
                   <div className="space-y-1">
                     <span className="text-[10px] font-mono text-neutral-600 uppercase">Load (kg)</span>
                     <input 
-                      type="number"
-                      value={ex.weight}
-                      onChange={(e) => updateExercise(ex.id, { weight: parseFloat(e.target.value) })}
+                      type="text"
+                      inputMode="decimal"
+                      value={inputStates[`${ex.id}-weight`] ?? (ex.weight === 0 ? '' : ex.weight.toString())}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => updateNumericField(ex.id, 'weight', e.target.value)}
                       className="bg-neutral-950 border border-neutral-800 rounded px-2 py-1.5 text-[11px] w-full focus:border-neutral-700 outline-none"
                     />
                   </div>
@@ -325,9 +354,11 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({ plans, onUpdatePlans }) => {
                   <div className="space-y-1">
                     <span className="text-[10px] font-mono text-neutral-600 uppercase">Sets</span>
                     <input 
-                      type="number"
-                      value={ex.sets}
-                      onChange={(e) => updateExercise(ex.id, { sets: parseInt(e.target.value) })}
+                      type="text"
+                      inputMode="decimal"
+                      value={inputStates[`${ex.id}-sets`] ?? (ex.sets === 0 ? '' : ex.sets.toString())}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => updateNumericField(ex.id, 'sets', e.target.value)}
                       className="bg-neutral-950 border border-neutral-800 rounded px-2 py-1.5 text-[11px] w-full focus:border-neutral-700 outline-none"
                     />
                   </div>
@@ -335,8 +366,10 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({ plans, onUpdatePlans }) => {
                     <span className="text-[10px] font-mono text-neutral-600 uppercase">Reps</span>
                     <input 
                       type="text"
-                      value={ex.reps}
-                      onChange={(e) => updateExercise(ex.id, { reps: e.target.value })}
+                      inputMode="decimal"
+                      value={inputStates[`${ex.id}-reps`] ?? ex.reps}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => updateNumericField(ex.id, 'reps', e.target.value)}
                       className="bg-neutral-950 border border-neutral-800 rounded px-2 py-1.5 text-[11px] w-full focus:border-neutral-700 outline-none"
                     />
                   </div>
@@ -387,10 +420,10 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({ plans, onUpdatePlans }) => {
         </div>
         <button 
           onClick={startNewPlan}
-          className="bg-neutral-100 hover:bg-white text-black px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-all"
+          className="bg-neutral-100 hover:bg-white text-black px-2 sm:px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-all"
         >
           <Plus size={18} />
-          <span>New Blueprint</span>
+          <span className="hidden sm:inline">New Blueprint</span>
         </button>
       </div>
 
@@ -405,7 +438,11 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({ plans, onUpdatePlans }) => {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {plans.map((plan: WorkoutPlan) => (
-            <div key={plan.id} className="bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden group hover:border-neutral-700 transition-all shadow-xl">
+            <div 
+              key={plan.id} 
+              onClick={() => { setEditingPlanId(plan.id); setTempPlan(plan); }}
+              className="bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden group hover:border-neutral-700 transition-all shadow-xl cursor-pointer"
+            >
               <div className="p-6">
                 <div className="flex justify-between items-start mb-4">
                   <div>
@@ -414,13 +451,14 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({ plans, onUpdatePlans }) => {
                   </div>
                   <div className="flex gap-2">
                     <button 
-                      onClick={() => { setEditingPlanId(plan.id); setTempPlan(plan); }}
-                      className="p-2 bg-neutral-800 hover:bg-neutral-700 rounded-lg text-neutral-400 hover:text-white transition-all"
+                      onClick={(e) => { e.stopPropagation(); onLogPlan?.(plan.id); }}
+                      title="Log this blueprint today"
+                      className="p-2 bg-emerald-950/40 hover:bg-emerald-900/60 rounded-lg text-emerald-400 hover:text-emerald-300 border border-emerald-500/20 transition-all"
                     >
-                      <Edit2 size={16} />
+                      <Activity size={16} />
                     </button>
                     <button 
-                      onClick={() => deletePlan(plan.id)}
+                      onClick={(e) => { e.stopPropagation(); deletePlan(plan.id); }}
                       className="p-2 bg-neutral-800 hover:bg-rose-900/30 rounded-lg text-neutral-400 hover:text-rose-500 transition-all"
                     >
                       <Trash2 size={16} />
@@ -460,12 +498,9 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({ plans, onUpdatePlans }) => {
                       </div>
                     )}
                  </div>
-                 <button 
-                  onClick={() => { setEditingPlanId(plan.id); setTempPlan(plan); }}
-                  className="text-[10px] font-mono text-emerald-500 hover:text-emerald-400 font-bold uppercase tracking-wider"
-                >
+                 <div className="text-[10px] font-mono text-emerald-500 hover:text-emerald-400 font-bold uppercase tracking-wider">
                    Expand Blueprint &rarr;
-                 </button>
+                 </div>
               </div>
             </div>
           ))}

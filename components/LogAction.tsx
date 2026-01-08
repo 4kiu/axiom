@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 import { 
   IdentityState, 
@@ -38,6 +37,7 @@ interface LogActionProps {
   onCancel: () => void;
   initialDate?: Date;
   initialIdentity?: IdentityState;
+  initialPlanId?: string;
   editingEntry?: WorkoutEntry;
 }
 
@@ -49,12 +49,15 @@ const LogAction: React.FC<LogActionProps> = ({
   onCancel, 
   initialDate, 
   initialIdentity,
+  initialPlanId,
   editingEntry 
 }) => {
   const [selectedIdentity, setSelectedIdentity] = useState<IdentityState | null>(
     editingEntry?.identity ?? initialIdentity ?? null
   );
-  const [selectedPlanId, setSelectedPlanId] = useState<string | undefined>(editingEntry?.planId);
+  const [selectedPlanId, setSelectedPlanId] = useState<string | undefined>(
+    editingEntry?.planId ?? initialPlanId
+  );
   const [energy, setEnergy] = useState<number>(editingEntry?.energy ?? 3);
   const [notes, setNotes] = useState(editingEntry?.notes ?? '');
   const [selectedTags, setSelectedTags] = useState<ContextTag[]>(editingEntry?.tags ?? []);

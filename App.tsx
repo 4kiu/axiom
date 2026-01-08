@@ -20,12 +20,14 @@ import {
   Calendar,
   Edit3,
   Github,
-  Zap
+  Zap,
+  LogOut
 } from 'lucide-react';
 import { format, addWeeks, addDays, isSameDay } from 'date-fns';
 
 const STORAGE_KEY = 'axiom_os_data_v1';
 const PLANS_STORAGE_KEY = 'axiom_os_plans_v1';
+const VIEW_STORAGE_KEY = 'axiom_os_view_v1';
 
 const AxiomLogo = ({ className = "w-8 h-8" }: { className?: string }) => (
   <svg 
@@ -65,19 +67,73 @@ const startOfWeek = (date: Date | number, options?: { weekStartsOn?: number }) =
   return d;
 };
 
+type ViewType = 'current' | 'history' | 'discovery' | 'plans';
+
 const App: React.FC = () => {
-  const [view, setView] = useState<'current' | 'history' | 'discovery' | 'plans'>('current');
+  const [view, setView] = useState<ViewType>(() => {
+    const savedView = localStorage.getItem(VIEW_STORAGE_KEY);
+    return (savedView as any) || 'current';
+  });
   const [entries, setEntries] = useState<WorkoutEntry[]>([]);
   const [plans, setPlans] = useState<WorkoutPlan[]>([]);
   const [isLogModalOpen, setIsLogModalOpen] = useState(false);
   const [dashboardWeekOffset, setDashboardWeekOffset] = useState(0);
-  const [preselectedLogData, setPreselectedLogData] = useState<{ date?: Date, identity?: IdentityState, editingEntry?: WorkoutEntry } | null>(null);
+  const [preselectedLogData, setPreselectedLogData] = useState<{ date?: Date, identity?: IdentityState, editingEntry?: WorkoutEntry, initialPlanId?: string } | null>(null);
+  const [exitWarning, setExitWarning] = useState(false);
   
   const [isNavVisible, setIsNavVisible] = useState(true);
   const lastScrollY = useRef(0);
+  const exitTimerRef = useRef<number | null>(null);
   
-  // Swipe logic state
   const [touchStartX, setTouchStartX] = useState<number | null>(null);
+
+  // History and Back Handling
+  useEffect(() => {
+    // Initialize history state
+    if (!window.history.state) {
+      window.history.replaceState({ view }, '');
+    }
+
+    const handlePopState = (event: PopStateEvent) => {
+      if (event.state && event.state.view) {
+        setView(event.state.view);
+        setExitWarning(false);
+      } else {
+        // If we reached the end of history
+        if (view === 'current') {
+          handleExitSequence();
+        } else {
+          changeView('current');
+        }
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [view]);
+
+  const handleExitSequence = () => {
+    if (exitWarning) {
+      // If warning already active, allow browser to go back (exit PWA)
+      window.history.back();
+    } else {
+      // Show warning and push state again to "trap" the current position
+      setExitWarning(true);
+      window.history.pushState({ view: 'current' }, '');
+      
+      if (exitTimerRef.current) window.clearTimeout(exitTimerRef.current);
+      exitTimerRef.current = window.setTimeout(() => {
+        setExitWarning(false);
+      }, 3000) as unknown as number;
+    }
+  };
+
+  const changeView = (newView: ViewType) => {
+    if (newView === view) return;
+    setView(newView);
+    window.history.pushState({ view: newView }, '');
+    localStorage.setItem(VIEW_STORAGE_KEY, newView);
+  };
 
   useEffect(() => {
     const handleScroll = () => {
@@ -123,6 +179,24 @@ const App: React.FC = () => {
 
   const handleUpdatePlans = (newPlans: WorkoutPlan[]) => { setPlans(newPlans); };
 
+  const handleLogPlan = (planId: string) => {
+    const today = new Date();
+    const existingToday = entries.find(e => isSameDay(new Date(e.timestamp), today));
+
+    if (existingToday) {
+      setEntries(prev => prev.map(e => 
+        e.id === existingToday.id ? { ...e, planId } : e
+      ));
+    } else {
+      setPreselectedLogData({ 
+        date: today, 
+        identity: IdentityState.NORMAL, 
+        initialPlanId: planId 
+      });
+      setIsLogModalOpen(true);
+    }
+  };
+
   const handleCellClick = (date: Date, identity: IdentityState) => {
     setPreselectedLogData({ date, identity });
     setIsLogModalOpen(true);
@@ -141,9 +215,7 @@ const App: React.FC = () => {
     setPreselectedLogData(null);
   };
 
-  // Swipe Handlers
   const onTouchStart = (e: React.TouchEvent) => {
-    // Only track swipe on smaller screens (mobile view)
     if (window.innerWidth < 1024) {
       setTouchStartX(e.targetTouches[0].clientX);
     }
@@ -153,13 +225,11 @@ const App: React.FC = () => {
     if (touchStartX === null) return;
     const touchEndX = e.changedTouches[0].clientX;
     const deltaX = touchEndX - touchStartX;
-    const threshold = 60; // minimum pixels for a swipe
+    const threshold = 60;
 
     if (deltaX > threshold) {
-      // Swipe Right -> Previous Week
       setDashboardWeekOffset(prev => prev - 1);
     } else if (deltaX < -threshold) {
-      // Swipe Left -> Next Week
       setDashboardWeekOffset(prev => prev + 1);
     }
     setTouchStartX(null);
@@ -171,10 +241,10 @@ const App: React.FC = () => {
 
   const NavItems = () => (
     <>
-      <button onClick={() => setView('current')} className={`px-4 sm:px-6 py-2 rounded-lg flex items-center justify-center transition-all ${view === 'current' ? 'bg-neutral-100 text-black' : 'hover:bg-neutral-800 text-neutral-400'}`}><LayoutDashboard size={22} /></button>
-      <button onClick={() => setView('plans')} className={`px-4 sm:px-6 py-2 rounded-lg flex items-center justify-center transition-all ${view === 'plans' ? 'bg-neutral-100 text-black' : 'hover:bg-neutral-800 text-neutral-400'}`}><BookOpen size={22} /></button>
-      <button onClick={() => setView('history')} className={`px-4 sm:px-6 py-2 rounded-lg flex items-center justify-center transition-all ${view === 'history' ? 'bg-neutral-100 text-black' : 'hover:bg-neutral-800 text-neutral-400'}`}><HistoryIcon size={22} /></button>
-      <button onClick={() => setView('discovery')} className={`px-4 sm:px-6 py-2 rounded-lg flex items-center justify-center transition-all ${view === 'discovery' ? 'bg-neutral-100 text-black' : 'hover:bg-neutral-800 text-neutral-400'}`}><BrainCircuit size={22} /></button>
+      <button onClick={() => changeView('current')} className={`px-4 sm:px-6 py-2 rounded-lg flex items-center justify-center transition-all ${view === 'current' ? 'bg-neutral-100 text-black' : 'hover:bg-neutral-800 text-neutral-400'}`}><LayoutDashboard size={22} /></button>
+      <button onClick={() => changeView('plans')} className={`px-4 sm:px-6 py-2 rounded-lg flex items-center justify-center transition-all ${view === 'plans' ? 'bg-neutral-100 text-black' : 'hover:bg-neutral-800 text-neutral-400'}`}><BookOpen size={22} /></button>
+      <button onClick={() => changeView('history')} className={`px-4 sm:px-6 py-2 rounded-lg flex items-center justify-center transition-all ${view === 'history' ? 'bg-neutral-100 text-black' : 'hover:bg-neutral-800 text-neutral-400'}`}><HistoryIcon size={22} /></button>
+      <button onClick={() => changeView('discovery')} className={`px-4 sm:px-6 py-2 rounded-lg flex items-center justify-center transition-all ${view === 'discovery' ? 'bg-neutral-100 text-black' : 'hover:bg-neutral-800 text-neutral-400'}`}><BrainCircuit size={22} /></button>
     </>
   );
 
@@ -199,7 +269,7 @@ const App: React.FC = () => {
       </header>
       <main className="flex-1 max-w-7xl mx-auto w-full p-4 md:p-6 space-y-8 bg-[#121212]">
         {view === 'current' && (
-          <div className="space-y-6">
+          <div className="space-y-6 animate-in fade-in duration-300">
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-stretch">
               <div 
                 className="lg:col-span-3 h-full"
@@ -254,7 +324,7 @@ const App: React.FC = () => {
             </div>
           </div>
         )}
-        {view === 'plans' && <PlanBuilder plans={plans} onUpdatePlans={handleUpdatePlans} />}
+        {view === 'plans' && <PlanBuilder plans={plans} onUpdatePlans={handleUpdatePlans} onLogPlan={handleLogPlan} />}
         {view === 'history' && <History entries={entries} plans={plans} onEditEntry={handleEditEntry} />}
         {view === 'discovery' && (
           <DiscoveryPanel 
@@ -270,10 +340,32 @@ const App: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={handleCloseModal} />
           <div className="relative bg-[#1a1a1a] border border-neutral-800 w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-            <LogAction entries={entries} plans={plans} onSave={addOrUpdateEntry} onDelete={deleteEntry} onCancel={handleCloseModal} initialDate={preselectedLogData?.date} initialIdentity={preselectedLogData?.identity} editingEntry={preselectedLogData?.editingEntry} />
+            <LogAction 
+              entries={entries} 
+              plans={plans} 
+              onSave={addOrUpdateEntry} 
+              onDelete={deleteEntry} 
+              onCancel={handleCloseModal} 
+              initialDate={preselectedLogData?.date} 
+              initialIdentity={preselectedLogData?.identity} 
+              editingEntry={preselectedLogData?.editingEntry} 
+              initialPlanId={preselectedLogData?.initialPlanId}
+            />
           </div>
         </div>
       )}
+
+      {/* Exit Warning Toast */}
+      {exitWarning && (
+        <div className="fixed bottom-24 sm:bottom-8 left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-bottom-4 fade-in duration-300">
+          <div className="bg-neutral-100 text-black px-6 py-3 rounded-full font-mono text-[10px] font-bold uppercase tracking-[0.2em] shadow-2xl flex items-center gap-3 border border-white/20">
+            <LogOut size={14} className="text-black" />
+            Press back again to exit system
+            <div className="w-1 h-1 rounded-full bg-rose-500 animate-pulse" />
+          </div>
+        </div>
+      )}
+
       <footer className="hidden sm:flex border-t border-neutral-800 p-2 text-[10px] font-mono text-neutral-600 justify-between bg-[#0e0e0e]">
         <div className="flex gap-4">
           <span>&copy; 2026 Axiom</span>

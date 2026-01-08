@@ -13,6 +13,7 @@ import {
   DownloadCloud, 
   RefreshCw,
   Link,
+  LogOut,
   Info,
   AlertTriangle
 } from 'lucide-react';
@@ -44,14 +45,39 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
 }) => {
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(() => localStorage.getItem('axiom_sync_token'));
+  const [userInfo, setUserInfo] = useState<{ name: string; email: string } | null>(() => {
+    const saved = localStorage.getItem('axiom_sync_profile');
+    return saved ? JSON.parse(saved) : null;
+  });
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'loading' | 'success' | 'error'>('idle');
   const [customSyncName, setCustomSyncName] = useState(() => `sync.${format(new Date(), 'ss.mm.HH.dd.MM.yyyy')}`);
   const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (accessToken && !userInfo) {
+      fetchUserInfo(accessToken);
+    }
     setCustomSyncName(`sync.${format(new Date(), 'ss.mm.HH.dd.MM.yyyy')}`);
   }, []);
+
+  const fetchUserInfo = async (token: string) => {
+    try {
+      const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const profile = { name: data.name, email: data.email };
+        setUserInfo(profile);
+        localStorage.setItem('axiom_sync_profile', JSON.stringify(profile));
+      } else if (response.status === 401) {
+        handleLogout();
+      }
+    } catch (e) {
+      console.error("DiscoveryPanel: Profile fetch failure", e);
+    }
+  };
 
   const loginWithGoogle = () => {
     setAuthError(null);
@@ -66,12 +92,15 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
 
         const client = google.accounts.oauth2.initTokenClient({
           client_id: clientId,
-          scope: 'https://www.googleapis.com/auth/drive.file',
+          scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
           callback: (response: any) => {
             if (response.access_token) {
-              setAccessToken(response.access_token);
+              const token = response.access_token;
+              setAccessToken(token);
+              localStorage.setItem('axiom_sync_token', token);
               setSyncStatus('success');
               setAuthError(null);
+              fetchUserInfo(token);
             } else if (response.error) {
               setAuthError(`Auth Error: ${response.error_description || response.error}`);
               setSyncStatus('error');
@@ -93,11 +122,71 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
     }
   };
 
+  const handleLogout = () => {
+    setAccessToken(null);
+    setUserInfo(null);
+    localStorage.removeItem('axiom_sync_token');
+    localStorage.removeItem('axiom_sync_profile');
+    setSyncStatus('idle');
+    setAuthError(null);
+  };
+
+  const getOrCreateAxiomFolder = async (token: string) => {
+    const q = encodeURIComponent("name = 'Axiom' and mimeType = 'application/vnd.google-apps.folder' and trashed = false");
+    const listResponse = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const listData = await listResponse.json();
+
+    if (listData.files && listData.files.length > 0) {
+      return listData.files[0].id;
+    }
+
+    // Create folder
+    const createResponse = await fetch('https://www.googleapis.com/drive/v3/files', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: 'Axiom',
+        mimeType: 'application/vnd.google-apps.folder',
+      }),
+    });
+    const createData = await createResponse.json();
+    return createData.id;
+  };
+
+  const cleanupOldSyncs = async (token: string, folderId: string) => {
+    try {
+      const q = encodeURIComponent(`'${folderId}' in parents and name contains "sync." and trashed = false`);
+      const listResponse = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&fields=files(id, name)`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const listData = await listResponse.json();
+
+      if (listData.files && listData.files.length > 5) {
+        const toDelete = listData.files.slice(5);
+        for (const file of toDelete) {
+          await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}`, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${token}` },
+          });
+        }
+      }
+    } catch (e) {
+      console.error("Sync cleanup failed:", e);
+    }
+  };
+
   const performSync = async () => {
     if (!accessToken) return loginWithGoogle();
     setSyncStatus('syncing');
     
     try {
+      const folderId = await getOrCreateAxiomFolder(accessToken);
+      
       const manifest = {
         version: '1.7',
         timestamp: Date.now(),
@@ -108,6 +197,7 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
       const metadata = {
         name: `${customSyncName}.json`,
         mimeType: 'application/json',
+        parents: [folderId]
       };
 
       const form = new FormData();
@@ -121,9 +211,14 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
       });
 
       if (response.ok) {
+        await cleanupOldSyncs(accessToken, folderId);
         setSyncStatus('success');
         setTimeout(() => setSyncStatus('idle'), 3000);
       } else {
+        if (response.status === 401) {
+          handleLogout();
+          throw new Error('Session expired. Please re-link account.');
+        }
         const errData = await response.json();
         throw new Error(errData.error?.message || 'Upload failed');
       }
@@ -139,9 +234,17 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
     setSyncStatus('loading');
 
     try {
-      const listResponse = await fetch('https://www.googleapis.com/drive/v3/files?q=name contains "sync." and name contains ".json"&orderBy=createdTime desc&pageSize=1', {
+      const folderId = await getOrCreateAxiomFolder(accessToken);
+      const q = encodeURIComponent(`'${folderId}' in parents and name contains "sync." and name contains ".json" and trashed = false`);
+      const listResponse = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
+      
+      if (listResponse.status === 401) {
+        handleLogout();
+        throw new Error('Session expired. Please re-link account.');
+      }
+
       const listData = await listResponse.json();
 
       if (listData.files && listData.files.length > 0) {
@@ -158,7 +261,7 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
           setTimeout(() => setSyncStatus('idle'), 3000);
         }
       } else {
-        setAuthError("No cloud manifests detected in primary drive.");
+        setAuthError("No cloud manifests detected in the Axiom folder.");
         setSyncStatus('idle');
       }
     } catch (e: any) {
@@ -260,13 +363,25 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
             <div className="absolute top-0 left-0 w-1 h-full bg-emerald-500/50 group-hover:bg-emerald-500 transition-all" />
             
             <div className="flex justify-between items-start mb-4">
-                <div>
+                <div className="flex-1 min-w-0">
                     <h3 className="text-sm font-bold text-white flex items-center gap-2">
                         {accessToken ? <Cloud className="text-emerald-500" size={16} /> : <CloudOff className="text-neutral-600" size={16} />}
                         System Sync
                     </h3>
+                    {userInfo && (
+                      <p className="text-[10px] text-neutral-500 font-mono ml-6 truncate" title={userInfo.email}>
+                        {userInfo.name}
+                      </p>
+                    )}
                 </div>
-                {!accessToken && (
+                {accessToken ? (
+                    <button 
+                        onClick={handleLogout}
+                        className="px-2 py-1 bg-rose-950/40 hover:bg-rose-900/60 text-rose-400 border border-rose-500/30 text-[9px] font-bold rounded transition-all flex items-center gap-1 uppercase"
+                    >
+                        <LogOut size={10} /> Logout
+                    </button>
+                ) : (
                     <button 
                         onClick={loginWithGoogle}
                         className="px-2 py-1 bg-neutral-100 hover:bg-white text-black text-[9px] font-bold rounded transition-all flex items-center gap-1 uppercase"
@@ -293,7 +408,7 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
                 <div className="space-y-2">
                     <label className="text-[9px] font-mono text-neutral-600 uppercase tracking-widest block flex items-center justify-between">
                         Manifest Pattern
-                        <span title="Identifies the sync file on Drive" className="cursor-help">
+                        <span title="Identifies the sync file in the 'Axiom' folder" className="cursor-help">
                           <Info size={10} className="text-neutral-700" />
                         </span>
                     </label>
@@ -336,11 +451,11 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
                   <span className="text-[10px] font-mono text-violet-400 uppercase font-bold">Sync Not Linked</span>
                </div>
                <p className="text-[10px] text-neutral-400 leading-relaxed">
-                 Cloud synchronization is currently offline. To enable remote manifest persistence and cross-device recovery, establish a secure link with Google Drive.
+                 Cloud synchronization is currently offline. To enable remote manifest persistence and cross-device recovery, establish a secure link with Google Drive. Files are stored in the 'Axiom' folder.
                </p>
                <div className="mt-4 pt-3 border-t border-violet-800/20">
                  <p className="text-[9px] text-neutral-500 font-mono uppercase">
-                   Environment Status: {process.env.GOOGLE_CLIENT_ID?.includes('placeholder') ? 'CONFIG_PENDING' : 'READY'}
+                   Environment Status: {(!process.env.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID.includes('placeholder')) ? 'CONFIG_PENDING' : 'READY'}
                  </p>
                </div>
             </div>
