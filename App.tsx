@@ -25,13 +25,15 @@ import {
   Cloud,
   CloudOff,
   RefreshCw,
-  AlertTriangle
+  AlertTriangle,
+  CheckCircle2
 } from 'lucide-react';
 import { format, addWeeks, addDays, isSameDay } from 'date-fns';
 
 const STORAGE_KEY = 'axiom_os_data_v1';
 const PLANS_STORAGE_KEY = 'axiom_os_plans_v1';
 const VIEW_STORAGE_KEY = 'axiom_os_view_v1';
+const SYNC_MODE_KEY = 'axiom_sync_mode_v1';
 
 const AxiomLogo = ({ className = "w-8 h-8" }: { className?: string }) => (
   <svg 
@@ -70,6 +72,7 @@ const startOfWeek = (date: Date | number, options?: { weekStartsOn?: number }) =
   return d;
 };
 
+export type SyncMode = 'sync' | 'load' | 'off';
 type ViewType = 'current' | 'history' | 'discovery' | 'plans';
 
 const App: React.FC = () => {
@@ -93,14 +96,22 @@ const App: React.FC = () => {
   const exitTimerRef = useRef<number | null>(null);
   const [touchStartX, setTouchStartX] = useState<number | null>(null);
 
-  // Sync State Shared with DiscoveryPanel
+  // Sync Configuration
+  const [syncMode, setSyncMode] = useState<SyncMode>(() => (localStorage.getItem(SYNC_MODE_KEY) as SyncMode) || 'off');
+  const [hasImported, setHasImported] = useState(false);
   const [accessToken, setAccessToken] = useState<string | null>(() => localStorage.getItem('axiom_sync_token'));
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'loading' | 'success' | 'error'>('idle');
+  
   const isInitialMount = useRef(true);
   const syncTimeoutRef = useRef<number | null>(null);
 
-  // Requirement: Limit to 5 latest syncs.
   const performSync = useCallback(async (token: string, currentEntries: WorkoutEntry[], currentPlans: WorkoutPlan[]) => {
+    // Safety check: Never auto-sync unless we have successfully pulled the latest cloud state first to avoid data corruption.
+    if (!hasImported) {
+      console.warn("Sync blocked: System initialization (initial import) required first.");
+      return;
+    }
+
     setSyncStatus('syncing');
     try {
       const q_folder = encodeURIComponent("name = 'Axiom' and mimeType = 'application/vnd.google-apps.folder' and trashed = false");
@@ -120,7 +131,6 @@ const App: React.FC = () => {
         folderId = createData.id;
       }
 
-      // Cleanup Logic: Keep only latest 4 before adding the new one
       const q_files = encodeURIComponent(`'${folderId}' in parents and name contains "sync." and trashed = false`);
       const listFilesResponse = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q_files}&orderBy=createdTime desc&fields=files(id, name, createdTime)`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -128,7 +138,6 @@ const App: React.FC = () => {
       const filesData = await listFilesResponse.json();
       const existingSyncs = filesData.files || [];
 
-      // If we have 5 or more, delete the older ones to make room (keeping top 4)
       if (existingSyncs.length >= 5) {
         const toDelete = existingSyncs.slice(4);
         for (const file of toDelete) {
@@ -164,12 +173,11 @@ const App: React.FC = () => {
         setSyncStatus('error');
       }
     } catch (e) {
-      console.error("AutoSync Failure:", e);
       setSyncStatus('error');
     }
-  }, []);
+  }, [hasImported]);
 
-  const loadLatestSyncOnStartup = useCallback(async (token: string) => {
+  const loadLatestSync = useCallback(async (token: string) => {
     setSyncStatus('loading');
     try {
       const q_folder = encodeURIComponent("name = 'Axiom' and mimeType = 'application/vnd.google-apps.folder' and trashed = false");
@@ -180,6 +188,7 @@ const App: React.FC = () => {
       const folderId = folderData.files?.[0]?.id;
       if (!folderId) {
         setSyncStatus('idle');
+        setHasImported(true); // Treat as imported even if cloud is fresh
         return;
       }
 
@@ -199,67 +208,67 @@ const App: React.FC = () => {
           if (manifest.data.entries) setEntries(manifest.data.entries);
           if (manifest.data.plans) setPlans(manifest.data.plans);
           setSyncStatus('success');
+          setHasImported(true);
           setTimeout(() => setSyncStatus('idle'), 2000);
         }
       } else {
         setSyncStatus('idle');
+        setHasImported(true);
       }
     } catch (e) {
-      console.error("Startup Sync Failure:", e);
       setSyncStatus('error');
     }
   }, []);
 
-  // Initial Data Load
+  // Mode Persistence
+  useEffect(() => { localStorage.setItem(SYNC_MODE_KEY, syncMode); }, [syncMode]);
+
+  // Initial Data Load & Safety Gate
   useEffect(() => {
     const savedEntries = localStorage.getItem(STORAGE_KEY);
     const savedPlans = localStorage.getItem(PLANS_STORAGE_KEY);
     if (savedEntries) try { setEntries(JSON.parse(savedEntries)); } catch (e) {}
     if (savedPlans) try { setPlans(JSON.parse(savedPlans)); } catch (e) {}
 
-    // Requirement: Auto import latest sync when found or on refresh
     if (accessToken) {
-      loadLatestSyncOnStartup(accessToken);
-    } else {
-      // Requirement: Prompt a warning if sync is not enabled on startup
-      const hasSeenWarning = sessionStorage.getItem('axiom_seen_sync_warning');
-      if (!hasSeenWarning) {
-        setSyncNotice(true);
-        sessionStorage.setItem('axiom_seen_sync_warning', 'true');
-        const timer = setTimeout(() => setSyncNotice(false), 8000);
-        return () => clearTimeout(timer);
+      // MANDATORY: If any auto mode is enabled, we must import first.
+      if (syncMode === 'sync' || syncMode === 'load') {
+        loadLatestSync(accessToken);
       }
+    } else {
+      // Every refresh: Show warning if sync is disabled
+      setSyncNotice(true);
+      const timer = setTimeout(() => setSyncNotice(false), 8000);
+      return () => clearTimeout(timer);
     }
-  }, [accessToken, loadLatestSyncOnStartup]);
+  }, [accessToken, loadLatestSync]);
 
-  // Requirement: Auto sync when a change is detected
+  // Auto-Sync Trigger
   useEffect(() => {
     if (isInitialMount.current) {
       isInitialMount.current = false;
       return;
     }
-
-    if (accessToken && (entries.length > 0 || plans.length > 0)) {
+    
+    // Only auto-sync if mode is 'sync' AND we've passed the safety import gate
+    if (accessToken && syncMode === 'sync' && hasImported) {
       if (syncTimeoutRef.current) window.clearTimeout(syncTimeoutRef.current);
       syncTimeoutRef.current = window.setTimeout(() => {
         performSync(accessToken, entries, plans);
-      }, 3000) as unknown as number; // Debounced auto-sync
+      }, 3000) as unknown as number;
     }
 
     return () => {
       if (syncTimeoutRef.current) window.clearTimeout(syncTimeoutRef.current);
     };
-  }, [entries, plans, accessToken, performSync]);
+  }, [entries, plans, accessToken, performSync, syncMode, hasImported]);
 
   useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(entries)); }, [entries]);
   useEffect(() => { localStorage.setItem(PLANS_STORAGE_KEY, JSON.stringify(plans)); }, [plans]);
 
-  // View and History Handling
+  // Routing Handlers
   useEffect(() => {
-    if (!window.history.state) {
-      window.history.replaceState({ view, isSubPage: false }, '');
-    }
-
+    if (!window.history.state) window.history.replaceState({ view, isSubPage: false }, '');
     const handlePopState = (event: PopStateEvent) => {
       const state = event.state;
       if (state) {
@@ -268,32 +277,25 @@ const App: React.FC = () => {
         if (!state.isSubPage) setEditingPlanId(null);
         setExitWarning(false);
       } else {
-        if (view === 'current' && !isPlanEditing) {
-          handleExitSequence();
-        } else if (isPlanEditing) {
+        if (view === 'current' && !isPlanEditing) handleExitSequence();
+        else if (isPlanEditing) {
           setIsPlanEditing(false);
           setEditingPlanId(null);
           window.history.replaceState({ view, isSubPage: false }, '');
-        } else {
-          changeView('current');
-        }
+        } else changeView('current');
       }
     };
-
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, [view, isPlanEditing]);
 
   const handleExitSequence = () => {
-    if (exitWarning) {
-      window.history.back();
-    } else {
+    if (exitWarning) window.history.back();
+    else {
       setExitWarning(true);
       window.history.pushState({ view: 'current', isSubPage: false }, '');
       if (exitTimerRef.current) window.clearTimeout(exitTimerRef.current);
-      exitTimerRef.current = window.setTimeout(() => {
-        setExitWarning(false);
-      }, 3000) as unknown as number;
+      exitTimerRef.current = window.setTimeout(() => setExitWarning(false), 3000) as unknown as number;
     }
   };
 
@@ -312,9 +314,7 @@ const App: React.FC = () => {
     window.history.pushState({ view: 'plans', isSubPage: true }, '');
   };
 
-  const handlePlanEditorClose = () => {
-    if (isPlanEditing) window.history.back();
-  };
+  const handlePlanEditorClose = () => { if (isPlanEditing) window.history.back(); };
 
   useEffect(() => {
     const handleScroll = () => {
@@ -337,8 +337,6 @@ const App: React.FC = () => {
   const deleteEntry = (id: string) => {
     if (window.confirm('Confirm Deletion?')) setEntries(prev => prev.filter(e => e.id !== id));
   };
-
-  const handleUpdatePlans = (newPlans: WorkoutPlan[]) => setPlans(newPlans);
 
   const handleLogPlan = (planId: string) => {
     const today = new Date();
@@ -363,20 +361,6 @@ const App: React.FC = () => {
     }
   };
 
-  const handleCloseModal = () => {
-    setIsLogModalOpen(false);
-    setPreselectedLogData(null);
-  };
-
-  const onTouchStart = (e: React.TouchEvent) => { if (window.innerWidth < 1024) setTouchStartX(e.targetTouches[0].clientX); };
-  const onTouchEnd = (e: React.TouchEvent) => {
-    if (touchStartX === null) return;
-    const deltaX = e.changedTouches[0].clientX - touchStartX;
-    if (deltaX > 60) setDashboardWeekOffset(prev => prev - 1);
-    else if (deltaX < -60) setDashboardWeekOffset(prev => prev + 1);
-    setTouchStartX(null);
-  };
-
   const dashboardWeekStart = startOfWeek(addWeeks(new Date(), dashboardWeekOffset), { weekStartsOn: 0 });
   const todayEntry = entries.find(e => isSameDay(new Date(e.timestamp), new Date()));
   const todayHasEntry = !!todayEntry;
@@ -390,37 +374,33 @@ const App: React.FC = () => {
     </>
   );
 
-  const SyncStatusIndicator = () => {
+  const StatusIndicator = () => {
     let statusText = accessToken ? 'Linked' : 'Offline';
     let dotColor = accessToken ? 'bg-emerald-500' : 'bg-neutral-600';
-    let icon = accessToken ? <Cloud size={14} className="text-emerald-500" /> : <CloudOff size={14} className="text-neutral-600" />;
-
+    let Icon = accessToken ? Cloud : CloudOff;
+    
     if (syncStatus === 'loading') {
       statusText = 'Importing...';
       dotColor = 'bg-amber-500';
-      icon = <RefreshCw size={14} className="text-amber-500 animate-spin" />;
+      Icon = RefreshCw;
     } else if (syncStatus === 'syncing') {
       statusText = 'Syncing...';
       dotColor = 'bg-blue-500';
-      icon = <RefreshCw size={14} className="text-blue-500 animate-spin" />;
+      Icon = RefreshCw;
     } else if (syncStatus === 'success' && accessToken) {
       statusText = 'Success';
-      dotColor = 'bg-emerald-400';
-    } else if (syncStatus === 'error' && accessToken) {
-      statusText = 'Sync Error';
+      Icon = CheckCircle2;
+    } else if (syncStatus === 'error') {
+      statusText = 'Auth Error';
       dotColor = 'bg-rose-500';
-      icon = <AlertTriangle size={14} className="text-rose-500" />;
+      Icon = AlertTriangle;
     }
 
     return (
-      <div className="flex items-center gap-2 group cursor-pointer" title={statusText}>
-        <div className={`w-2 h-2 rounded-full ${dotColor} animate-pulse`} />
-        <span className="text-[10px] font-mono text-neutral-500 uppercase tracking-tighter whitespace-nowrap overflow-hidden max-w-[80px] sm:max-w-none transition-all">
-          {statusText}
-        </span>
-        <div className="hidden sm:block opacity-50 group-hover:opacity-100 transition-opacity">
-          {icon}
-        </div>
+      <div className="flex items-center gap-2 px-3 py-1.5 bg-neutral-900/40 border border-neutral-800 rounded-lg">
+        <div className={`w-1.5 h-1.5 rounded-full ${dotColor} ${syncStatus !== 'idle' ? 'animate-pulse' : ''}`} />
+        <span className="text-[10px] font-mono text-neutral-400 uppercase tracking-tighter whitespace-nowrap">{statusText}</span>
+        <Icon size={12} className={`text-neutral-500 ${syncStatus !== 'idle' && syncStatus !== 'success' && syncStatus !== 'error' ? 'animate-spin' : ''}`} />
       </div>
     );
   };
@@ -433,21 +413,18 @@ const App: React.FC = () => {
             <AxiomLogo className="w-8 h-8" />
             <div className="flex flex-col">
               <h1 className="text-lg font-mono font-bold tracking-tight uppercase leading-none text-white">Axiom v1.7</h1>
-              <span className="text-[9px] text-neutral-500 font-mono hidden sm:inline uppercase">Personal Intelligence OS</span>
-              <span className="text-[9px] text-neutral-500 font-mono sm:hidden uppercase tracking-tighter">Personal Intelligence OS</span>
+              <span className="text-[9px] text-neutral-500 font-mono uppercase tracking-tighter">Personal Intelligence OS</span>
             </div>
           </div>
           <nav className="hidden sm:flex items-center gap-2 bg-neutral-900/50 p-1.5 rounded-xl border border-neutral-800"><NavItems /></nav>
-          <div className="flex items-center gap-4">
-            <SyncStatusIndicator />
-          </div>
+          <StatusIndicator />
         </div>
       </header>
       <main className="flex-1 max-w-7xl mx-auto w-full p-4 md:p-6 space-y-8 bg-[#121212]">
         {view === 'current' && (
           <div className="space-y-6 animate-in fade-in duration-300">
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-stretch">
-              <div className="lg:col-span-3 h-full" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} style={{ touchAction: 'pan-y' }}>
+              <div className="lg:col-span-3 h-full">
                 <WeeklyGrid isCompact={true} entries={entries} plans={plans} onEntryClick={handleEditEntry} onCellClick={handleCellClick} weekStart={dashboardWeekStart} />
               </div>
               <div className="hidden lg:block h-full">
@@ -461,11 +438,9 @@ const App: React.FC = () => {
                         </div>
                       ))}
                     </div>
-                    <div className="mt-auto">
-                      <div className="pt-4 border-t border-neutral-800 mb-6">
-                        <div className="text-[11px] font-mono text-neutral-400 bg-black/40 px-3 py-2 rounded border border-neutral-800 flex items-center gap-2">
-                          <Calendar size={12} className="text-neutral-600" /> {format(dashboardWeekStart, 'MMM dd')} — {format(addDays(dashboardWeekStart, 7), 'MMM dd')}
-                        </div>
+                    <div className="mt-auto pt-4 border-t border-neutral-800">
+                      <div className="text-[11px] font-mono text-neutral-400 bg-black/40 px-3 py-2 rounded border border-neutral-800 flex items-center gap-2 mb-6">
+                        <Calendar size={12} className="text-neutral-600" /> {format(dashboardWeekStart, 'MMM dd')} — {format(addDays(dashboardWeekStart, 7), 'MMM dd')}
                       </div>
                       <div className="flex items-center gap-2">
                         <button onClick={() => setDashboardWeekOffset(prev => prev - 1)} className="flex-1 bg-neutral-950 hover:bg-neutral-800 border border-neutral-800 p-2 rounded flex justify-center text-neutral-400"><ChevronLeft size={16} /></button>
@@ -484,7 +459,7 @@ const App: React.FC = () => {
                   <h3 className="text-sm font-mono text-neutral-500 uppercase tracking-widest mb-2">System Rules</h3>
                   <ul className="text-xs space-y-3 text-neutral-400">
                     <li className="flex gap-2"><ShieldAlert size={14} className="text-rose-500 shrink-0" /><span>Logging is restricted to 1 entry per day to ensure mapping fidelity.</span></li>
-                    <li className="flex gap-2"><Zap size={14} className="text-violet-500 shrink-0" /><span>Streaks are sustained by any logged activity. Rest bridges the gap, while missing logs or Survival reset it.</span></li>
+                    <li className="flex gap-2"><Zap size={14} className="text-violet-500 shrink-0" /><span>Streaks are sustained by any logged activity except Survival states.</span></li>
                   </ul>
                 </div>
                 <button onClick={() => todayHasEntry ? handleEditEntry(todayEntry!.id) : setIsLogModalOpen(true)} className="mt-6 w-full py-3 bg-neutral-100 hover:bg-white text-black font-bold rounded-lg transition-colors flex items-center justify-center gap-2">
@@ -495,17 +470,7 @@ const App: React.FC = () => {
             </div>
           </div>
         )}
-        {view === 'plans' && (
-          <PlanBuilder 
-            plans={plans} 
-            onUpdatePlans={handleUpdatePlans} 
-            onLogPlan={handleLogPlan}
-            externalIsEditing={isPlanEditing}
-            externalEditingPlanId={editingPlanId}
-            onOpenEditor={handlePlanEditorOpen}
-            onCloseEditor={handlePlanEditorClose}
-          />
-        )}
+        {view === 'plans' && <PlanBuilder plans={plans} onUpdatePlans={setPlans} onLogPlan={handleLogPlan} externalIsEditing={isPlanEditing} externalEditingPlanId={editingPlanId} onOpenEditor={handlePlanEditorOpen} onCloseEditor={handlePlanEditorClose} />}
         {view === 'history' && <History entries={entries} plans={plans} onEditEntry={handleEditEntry} />}
         {view === 'discovery' && (
           <DiscoveryPanel 
@@ -515,20 +480,25 @@ const App: React.FC = () => {
             onUpdatePlans={setPlans} 
             externalSyncStatus={syncStatus}
             onManualSync={() => accessToken && performSync(accessToken, entries, plans)}
+            syncMode={syncMode}
+            onSetSyncMode={(m) => {
+              setSyncMode(m);
+              if (m !== 'off') setHasImported(false); // Force fresh import gate on mode switch
+            }}
           />
         )}
       </main>
       <nav className={`sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#121212]/95 backdrop-blur-xl border-t border-neutral-800 px-6 py-4 flex justify-between items-center transition-transform duration-300 ease-in-out ${isNavVisible ? 'translate-y-0' : 'translate-y-full'}`}><NavItems /></nav>
       {isLogModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={handleCloseModal} />
+          <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => { setIsLogModalOpen(false); setPreselectedLogData(null); }} />
           <div className="relative bg-[#1a1a1a] border border-neutral-800 w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             <LogAction 
               entries={entries} 
               plans={plans} 
               onSave={addOrUpdateEntry} 
               onDelete={deleteEntry} 
-              onCancel={handleCloseModal} 
+              onCancel={() => { setIsLogModalOpen(false); setPreselectedLogData(null); }} 
               initialDate={preselectedLogData?.date} 
               initialIdentity={preselectedLogData?.identity} 
               editingEntry={preselectedLogData?.editingEntry} 
@@ -539,34 +509,25 @@ const App: React.FC = () => {
       )}
       {syncNotice && (
         <div className="fixed bottom-24 sm:bottom-8 left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-bottom-4 fade-in duration-300">
-          <button 
-            onClick={() => { setSyncNotice(false); changeView('discovery'); }}
-            className="bg-amber-500 text-black px-6 py-3 rounded-full font-mono text-[10px] font-bold uppercase tracking-[0.1em] shadow-2xl flex items-center gap-3 border border-white/20 hover:bg-amber-400 transition-colors"
-          >
-            <CloudOff size={14} />
-            Cloud Sync Disabled: Data is Local Only
-            <div className="px-1.5 py-0.5 bg-black/20 rounded text-[8px]">Link Now</div>
+          <button onClick={() => { setSyncNotice(false); changeView('discovery'); }} className="bg-amber-500 text-black px-6 py-3 rounded-full font-mono text-[10px] font-bold uppercase tracking-[0.1em] shadow-2xl flex items-center gap-3 border border-white/20 hover:bg-amber-400 transition-colors">
+            <CloudOff size={14} /> Cloud Sync Disabled: Data is Local Only <div className="px-1.5 py-0.5 bg-black/20 rounded text-[8px]">Link Now</div>
           </button>
         </div>
       )}
       {exitWarning && (
         <div className="fixed bottom-24 sm:bottom-8 left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-bottom-4 fade-in duration-300">
           <div className="bg-neutral-100 text-black px-6 py-3 rounded-full font-mono text-[10px] font-bold uppercase tracking-[0.2em] shadow-2xl flex items-center gap-3 border border-white/20">
-            <LogOut size={14} className="text-black" />
-            Press back again to exit system
-            <div className="w-1 h-1 rounded-full bg-rose-500 animate-pulse" />
+            <LogOut size={14} className="text-black" /> Press back again to exit system <div className="w-1 h-1 rounded-full bg-rose-500 animate-pulse" />
           </div>
         </div>
       )}
       <footer className="hidden sm:flex border-t border-neutral-800 p-2 text-[10px] font-mono text-neutral-600 justify-between bg-[#0e0e0e]">
         <div className="flex gap-4">
           <span>&copy; 2026 Axiom</span>
-          <a href="https://github.com/4kiu/axiom" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-neutral-400 hover:text-white transition-colors"><Github size={12} /> Source Access</a>
+          <a href="https://github.com" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-neutral-400 hover:text-white transition-colors"><Github size={12} /> Source Access</a>
         </div>
         <div className="flex gap-4">
-          <span className={syncStatus === 'syncing' ? 'animate-pulse text-emerald-500' : ''}>
-            {syncStatus === 'syncing' ? 'SYNC_ACTIVE' : 'IDENTITY_STABLE: OK'}
-          </span>
+          <span className={syncStatus !== 'idle' ? 'animate-pulse text-emerald-500' : ''}> {syncStatus !== 'idle' ? 'SYNC_ACTIVE' : 'IDENTITY_STABLE: OK'} </span>
           <span>SYSTEM_VERSION: ALPHA_v1.7</span>
         </div>
       </footer>
