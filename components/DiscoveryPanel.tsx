@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { WorkoutEntry, IdentityState, WorkoutPlan } from '../types.ts';
 import { GoogleGenAI } from '@google/genai';
@@ -330,16 +329,22 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
             </div>
           </div>
 
-          <div className="bg-violet-900/10 border border-violet-800/30 rounded-xl p-5 shadow-xl">
-             <div className="flex items-center gap-2 mb-2">
-                <Info size={12} className="text-violet-400" />
-                <span className="text-[10px] font-mono text-violet-400 uppercase font-bold">Setup Required</span>
-             </div>
-             <p className="text-[10px] text-neutral-400 leading-relaxed">
-               OAuth requires a valid <strong>GOOGLE_CLIENT_ID</strong> in your environment. 
-               Your current origin must also be added to <span className="text-violet-300">Authorized JavaScript Origins</span> in the Cloud Console.
-             </p>
-          </div>
+          {!accessToken && (
+            <div className="bg-violet-900/10 border border-violet-800/30 rounded-xl p-5 shadow-xl animate-in fade-in slide-in-from-bottom-2">
+               <div className="flex items-center gap-2 mb-2">
+                  <AlertTriangle size={12} className="text-violet-400" />
+                  <span className="text-[10px] font-mono text-violet-400 uppercase font-bold">Sync Not Linked</span>
+               </div>
+               <p className="text-[10px] text-neutral-400 leading-relaxed">
+                 Cloud synchronization is currently offline. To enable remote manifest persistence and cross-device recovery, establish a secure link with Google Drive.
+               </p>
+               <div className="mt-4 pt-3 border-t border-violet-800/20">
+                 <p className="text-[9px] text-neutral-500 font-mono uppercase">
+                   Environment Status: {process.env.GOOGLE_CLIENT_ID?.includes('placeholder') ? 'CONFIG_PENDING' : 'READY'}
+                 </p>
+               </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

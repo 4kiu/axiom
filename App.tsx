@@ -75,6 +75,9 @@ const App: React.FC = () => {
   
   const [isNavVisible, setIsNavVisible] = useState(true);
   const lastScrollY = useRef(0);
+  
+  // Swipe logic state
+  const [touchStartX, setTouchStartX] = useState<number | null>(null);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -138,6 +141,30 @@ const App: React.FC = () => {
     setPreselectedLogData(null);
   };
 
+  // Swipe Handlers
+  const onTouchStart = (e: React.TouchEvent) => {
+    // Only track swipe on smaller screens (mobile view)
+    if (window.innerWidth < 1024) {
+      setTouchStartX(e.targetTouches[0].clientX);
+    }
+  };
+
+  const onTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartX === null) return;
+    const touchEndX = e.changedTouches[0].clientX;
+    const deltaX = touchEndX - touchStartX;
+    const threshold = 60; // minimum pixels for a swipe
+
+    if (deltaX > threshold) {
+      // Swipe Right -> Previous Week
+      setDashboardWeekOffset(prev => prev - 1);
+    } else if (deltaX < -threshold) {
+      // Swipe Left -> Next Week
+      setDashboardWeekOffset(prev => prev + 1);
+    }
+    setTouchStartX(null);
+  };
+
   const dashboardWeekStart = startOfWeek(addWeeks(new Date(), dashboardWeekOffset), { weekStartsOn: 0 });
   const todayEntry = entries.find(e => isSameDay(new Date(e.timestamp), new Date()));
   const todayHasEntry = !!todayEntry;
@@ -174,7 +201,14 @@ const App: React.FC = () => {
         {view === 'current' && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-stretch">
-              <div className="lg:col-span-3 h-full"><WeeklyGrid isCompact={true} entries={entries} plans={plans} onEntryClick={handleEditEntry} onCellClick={handleCellClick} weekStart={dashboardWeekStart} /></div>
+              <div 
+                className="lg:col-span-3 h-full"
+                onTouchStart={onTouchStart}
+                onTouchEnd={onTouchEnd}
+                style={{ touchAction: 'pan-y' }}
+              >
+                <WeeklyGrid isCompact={true} entries={entries} plans={plans} onEntryClick={handleEditEntry} onCellClick={handleCellClick} weekStart={dashboardWeekStart} />
+              </div>
               <div className="hidden lg:block h-full">
                  <div className="bg-[#1a1a1a] border border-neutral-800 rounded-xl p-5 h-full flex flex-col">
                     <h3 className="text-xs font-mono text-neutral-500 uppercase tracking-widest mb-4">Identity Matrix</h3>
