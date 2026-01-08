@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { IdentityState, WorkoutEntry, IDENTITY_METADATA, WorkoutPlan } from './types.ts';
 import WeeklyGrid from './components/WeeklyGrid.tsx';
 import LogAction from './components/LogAction.tsx';
@@ -51,7 +51,6 @@ const AxiomLogo = ({ className = "w-8 h-8" }: { className?: string }) => (
     <path 
       d="M50 15L50 40" 
       stroke="white" 
-      strokeWidth="8" 
       strokeLinecap="round" 
     />
   </svg>
@@ -74,6 +73,9 @@ const App: React.FC = () => {
     const savedView = localStorage.getItem(VIEW_STORAGE_KEY);
     return (savedView as any) || 'current';
   });
+  
+  const [isPlanEditing, setIsPlanEditing] = useState(false);
+  const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
   const [entries, setEntries] = useState<WorkoutEntry[]>([]);
   const [plans, setPlans] = useState<WorkoutPlan[]>([]);
   const [isLogModalOpen, setIsLogModalOpen] = useState(false);
@@ -84,24 +86,105 @@ const App: React.FC = () => {
   const [isNavVisible, setIsNavVisible] = useState(true);
   const lastScrollY = useRef(0);
   const exitTimerRef = useRef<number | null>(null);
-  
   const [touchStartX, setTouchStartX] = useState<number | null>(null);
 
-  // History and Back Handling
+  // Sync State Shared with DiscoveryPanel
+  const [accessToken, setAccessToken] = useState<string | null>(() => localStorage.getItem('axiom_sync_token'));
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'loading' | 'success' | 'error'>('idle');
+  const isInitialMount = useRef(true);
+  const syncTimeoutRef = useRef<number | null>(null);
+
+  // Global performSync function for auto-sync and manual triggers
+  const performSync = useCallback(async (token: string, currentEntries: WorkoutEntry[], currentPlans: WorkoutPlan[]) => {
+    setSyncStatus('syncing');
+    try {
+      // Get or Create Folder Logic
+      const q = encodeURIComponent("name = 'Axiom' and mimeType = 'application/vnd.google-apps.folder' and trashed = false");
+      const listResponse = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const listData = await listResponse.json();
+      let folderId = listData.files?.[0]?.id;
+
+      if (!folderId) {
+        const createResponse = await fetch('https://www.googleapis.com/drive/v3/files', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'Axiom', mimeType: 'application/vnd.google-apps.folder' }),
+        });
+        const createData = await createResponse.json();
+        folderId = createData.id;
+      }
+
+      const syncName = `sync.${format(new Date(), 'ss.mm.HH.dd.MM.yyyy')}.json`;
+      const manifest = { version: '1.7', timestamp: Date.now(), data: { entries: currentEntries, plans: currentPlans } };
+      const metadata = { name: syncName, mimeType: 'application/json', parents: [folderId] };
+
+      const form = new FormData();
+      form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+      form.append('file', new Blob([JSON.stringify(manifest)], { type: 'application/json' }));
+
+      const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      });
+
+      if (response.ok) {
+        setSyncStatus('success');
+        setTimeout(() => setSyncStatus('idle'), 2000);
+      } else {
+        if (response.status === 401) {
+          setAccessToken(null);
+          localStorage.removeItem('axiom_sync_token');
+        }
+        setSyncStatus('error');
+      }
+    } catch (e) {
+      console.error("AutoSync Failure:", e);
+      setSyncStatus('error');
+    }
+  }, []);
+
+  // Auto-sync Effect: Triggered when entries or plans change
   useEffect(() => {
-    // Initialize history state
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+
+    if (accessToken && (entries.length > 0 || plans.length > 0)) {
+      if (syncTimeoutRef.current) window.clearTimeout(syncTimeoutRef.current);
+      syncTimeoutRef.current = window.setTimeout(() => {
+        performSync(accessToken, entries, plans);
+      }, 2000) as unknown as number;
+    }
+
+    return () => {
+      if (syncTimeoutRef.current) window.clearTimeout(syncTimeoutRef.current);
+    };
+  }, [entries, plans, accessToken, performSync]);
+
+  // History and Back Handling Logic
+  useEffect(() => {
     if (!window.history.state) {
-      window.history.replaceState({ view }, '');
+      window.history.replaceState({ view, isSubPage: false }, '');
     }
 
     const handlePopState = (event: PopStateEvent) => {
-      if (event.state && event.state.view) {
-        setView(event.state.view);
+      const state = event.state;
+      if (state) {
+        setView(state.view);
+        setIsPlanEditing(state.isSubPage || false);
+        if (!state.isSubPage) setEditingPlanId(null);
         setExitWarning(false);
       } else {
-        // If we reached the end of history
-        if (view === 'current') {
+        if (view === 'current' && !isPlanEditing) {
           handleExitSequence();
+        } else if (isPlanEditing) {
+          setIsPlanEditing(false);
+          setEditingPlanId(null);
+          window.history.replaceState({ view, isSubPage: false }, '');
         } else {
           changeView('current');
         }
@@ -110,17 +193,14 @@ const App: React.FC = () => {
 
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, [view]);
+  }, [view, isPlanEditing]);
 
   const handleExitSequence = () => {
     if (exitWarning) {
-      // If warning already active, allow browser to go back (exit PWA)
       window.history.back();
     } else {
-      // Show warning and push state again to "trap" the current position
       setExitWarning(true);
-      window.history.pushState({ view: 'current' }, '');
-      
+      window.history.pushState({ view: 'current', isSubPage: false }, '');
       if (exitTimerRef.current) window.clearTimeout(exitTimerRef.current);
       exitTimerRef.current = window.setTimeout(() => {
         setExitWarning(false);
@@ -129,20 +209,29 @@ const App: React.FC = () => {
   };
 
   const changeView = (newView: ViewType) => {
-    if (newView === view) return;
+    if (newView === view && !isPlanEditing) return;
     setView(newView);
-    window.history.pushState({ view: newView }, '');
+    setIsPlanEditing(false);
+    setEditingPlanId(null);
+    window.history.pushState({ view: newView, isSubPage: false }, '');
     localStorage.setItem(VIEW_STORAGE_KEY, newView);
+  };
+
+  const handlePlanEditorOpen = (planId: string | null) => {
+    setIsPlanEditing(true);
+    setEditingPlanId(planId);
+    window.history.pushState({ view: 'plans', isSubPage: true }, '');
+  };
+
+  const handlePlanEditorClose = () => {
+    if (isPlanEditing) window.history.back();
   };
 
   useEffect(() => {
     const handleScroll = () => {
       const currentScrollY = window.scrollY;
-      if (currentScrollY > lastScrollY.current && currentScrollY > 50) {
-        setIsNavVisible(false);
-      } else {
-        setIsNavVisible(true);
-      }
+      if (currentScrollY > lastScrollY.current && currentScrollY > 50) setIsNavVisible(false);
+      else setIsNavVisible(true);
       lastScrollY.current = currentScrollY;
     };
     window.addEventListener('scroll', handleScroll, { passive: true });
@@ -152,7 +241,6 @@ const App: React.FC = () => {
   useEffect(() => {
     const savedEntries = localStorage.getItem(STORAGE_KEY);
     const savedPlans = localStorage.getItem(PLANS_STORAGE_KEY);
-    
     if (savedEntries) try { setEntries(JSON.parse(savedEntries)); } catch (e) {}
     if (savedPlans) try { setPlans(JSON.parse(savedPlans)); } catch (e) {}
   }, []);
@@ -161,38 +249,24 @@ const App: React.FC = () => {
   useEffect(() => { localStorage.setItem(PLANS_STORAGE_KEY, JSON.stringify(plans)); }, [plans]);
 
   const addOrUpdateEntry = (entryData: Omit<WorkoutEntry, 'id'>, id?: string) => {
-    if (id) {
-      setEntries(prev => prev.map(e => e.id === id ? { ...entryData, id } : e));
-    } else {
-      const newEntry: WorkoutEntry = { ...entryData, id: crypto.randomUUID() };
-      setEntries(prev => [...prev, newEntry]);
-    }
+    if (id) setEntries(prev => prev.map(e => e.id === id ? { ...entryData, id } : e));
+    else setEntries(prev => [...prev, { ...entryData, id: crypto.randomUUID() }]);
     setIsLogModalOpen(false);
     setPreselectedLogData(null);
   };
 
   const deleteEntry = (id: string) => {
-    if (window.confirm('Confirm Deletion?')) {
-      setEntries(prev => prev.filter(e => e.id !== id));
-    }
+    if (window.confirm('Confirm Deletion?')) setEntries(prev => prev.filter(e => e.id !== id));
   };
 
-  const handleUpdatePlans = (newPlans: WorkoutPlan[]) => { setPlans(newPlans); };
+  const handleUpdatePlans = (newPlans: WorkoutPlan[]) => setPlans(newPlans);
 
   const handleLogPlan = (planId: string) => {
     const today = new Date();
     const existingToday = entries.find(e => isSameDay(new Date(e.timestamp), today));
-
-    if (existingToday) {
-      setEntries(prev => prev.map(e => 
-        e.id === existingToday.id ? { ...e, planId } : e
-      ));
-    } else {
-      setPreselectedLogData({ 
-        date: today, 
-        identity: IdentityState.NORMAL, 
-        initialPlanId: planId 
-      });
+    if (existingToday) setEntries(prev => prev.map(e => e.id === existingToday.id ? { ...e, planId } : e));
+    else {
+      setPreselectedLogData({ date: today, identity: IdentityState.NORMAL, initialPlanId: planId });
       setIsLogModalOpen(true);
     }
   };
@@ -215,23 +289,12 @@ const App: React.FC = () => {
     setPreselectedLogData(null);
   };
 
-  const onTouchStart = (e: React.TouchEvent) => {
-    if (window.innerWidth < 1024) {
-      setTouchStartX(e.targetTouches[0].clientX);
-    }
-  };
-
+  const onTouchStart = (e: React.TouchEvent) => { if (window.innerWidth < 1024) setTouchStartX(e.targetTouches[0].clientX); };
   const onTouchEnd = (e: React.TouchEvent) => {
     if (touchStartX === null) return;
-    const touchEndX = e.changedTouches[0].clientX;
-    const deltaX = touchEndX - touchStartX;
-    const threshold = 60;
-
-    if (deltaX > threshold) {
-      setDashboardWeekOffset(prev => prev - 1);
-    } else if (deltaX < -threshold) {
-      setDashboardWeekOffset(prev => prev + 1);
-    }
+    const deltaX = e.changedTouches[0].clientX - touchStartX;
+    if (deltaX > 60) setDashboardWeekOffset(prev => prev - 1);
+    else if (deltaX < -60) setDashboardWeekOffset(prev => prev + 1);
     setTouchStartX(null);
   };
 
@@ -257,7 +320,7 @@ const App: React.FC = () => {
             <div className="flex flex-col">
               <h1 className="text-lg font-mono font-bold tracking-tight uppercase leading-none text-white">Axiom v1.7</h1>
               <span className="text-[9px] text-neutral-500 font-mono hidden sm:inline uppercase">Personal Intelligence OS</span>
-              <span className="text-[9px] text-neutral-500 font-mono sm:hidden uppercase tracking-tighter">OS_CORE</span>
+              <span className="text-[9px] text-neutral-500 font-mono sm:hidden uppercase tracking-tighter">Personal Intelligence OS</span>
             </div>
           </div>
           <nav className="hidden sm:flex items-center gap-2 bg-neutral-900/50 p-1.5 rounded-xl border border-neutral-800"><NavItems /></nav>
@@ -271,12 +334,7 @@ const App: React.FC = () => {
         {view === 'current' && (
           <div className="space-y-6 animate-in fade-in duration-300">
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-stretch">
-              <div 
-                className="lg:col-span-3 h-full"
-                onTouchStart={onTouchStart}
-                onTouchEnd={onTouchEnd}
-                style={{ touchAction: 'pan-y' }}
-              >
+              <div className="lg:col-span-3 h-full" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} style={{ touchAction: 'pan-y' }}>
                 <WeeklyGrid isCompact={true} entries={entries} plans={plans} onEntryClick={handleEditEntry} onCellClick={handleCellClick} weekStart={dashboardWeekStart} />
               </div>
               <div className="hidden lg:block h-full">
@@ -324,7 +382,17 @@ const App: React.FC = () => {
             </div>
           </div>
         )}
-        {view === 'plans' && <PlanBuilder plans={plans} onUpdatePlans={handleUpdatePlans} onLogPlan={handleLogPlan} />}
+        {view === 'plans' && (
+          <PlanBuilder 
+            plans={plans} 
+            onUpdatePlans={handleUpdatePlans} 
+            onLogPlan={handleLogPlan}
+            externalIsEditing={isPlanEditing}
+            externalEditingPlanId={editingPlanId}
+            onOpenEditor={handlePlanEditorOpen}
+            onCloseEditor={handlePlanEditorClose}
+          />
+        )}
         {view === 'history' && <History entries={entries} plans={plans} onEditEntry={handleEditEntry} />}
         {view === 'discovery' && (
           <DiscoveryPanel 
@@ -332,6 +400,8 @@ const App: React.FC = () => {
             plans={plans} 
             onUpdateEntries={setEntries} 
             onUpdatePlans={setPlans} 
+            externalSyncStatus={syncStatus}
+            onManualSync={() => accessToken && performSync(accessToken, entries, plans)}
           />
         )}
       </main>
@@ -354,8 +424,6 @@ const App: React.FC = () => {
           </div>
         </div>
       )}
-
-      {/* Exit Warning Toast */}
       {exitWarning && (
         <div className="fixed bottom-24 sm:bottom-8 left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-bottom-4 fade-in duration-300">
           <div className="bg-neutral-100 text-black px-6 py-3 rounded-full font-mono text-[10px] font-bold uppercase tracking-[0.2em] shadow-2xl flex items-center gap-3 border border-white/20">
@@ -365,7 +433,6 @@ const App: React.FC = () => {
           </div>
         </div>
       )}
-
       <footer className="hidden sm:flex border-t border-neutral-800 p-2 text-[10px] font-mono text-neutral-600 justify-between bg-[#0e0e0e]">
         <div className="flex gap-4">
           <span>&copy; 2026 Axiom</span>

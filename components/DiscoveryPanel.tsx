@@ -15,7 +15,8 @@ import {
   Link,
   LogOut,
   Info,
-  AlertTriangle
+  AlertTriangle,
+  Zap
 } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -35,13 +36,17 @@ interface DiscoveryPanelProps {
   plans: WorkoutPlan[];
   onUpdateEntries: (entries: WorkoutEntry[]) => void;
   onUpdatePlans: (plans: WorkoutPlan[]) => void;
+  externalSyncStatus?: 'idle' | 'syncing' | 'loading' | 'success' | 'error';
+  onManualSync?: () => void;
 }
 
 const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({ 
   entries, 
   plans, 
   onUpdateEntries, 
-  onUpdatePlans 
+  onUpdatePlans,
+  externalSyncStatus = 'idle',
+  onManualSync
 }) => {
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -50,7 +55,7 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
     const saved = localStorage.getItem('axiom_sync_profile');
     return saved ? JSON.parse(saved) : null;
   });
-  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'loading' | 'success' | 'error'>('idle');
+  const [localSyncStatus, setLocalSyncStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [customSyncName, setCustomSyncName] = useState(() => `sync.${format(new Date(), 'ss.mm.HH.dd.MM.yyyy')}`);
   const [authError, setAuthError] = useState<string | null>(null);
 
@@ -58,8 +63,7 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
     if (accessToken && !userInfo) {
       fetchUserInfo(accessToken);
     }
-    setCustomSyncName(`sync.${format(new Date(), 'ss.mm.HH.dd.MM.yyyy')}`);
-  }, []);
+  }, [accessToken, userInfo]);
 
   const fetchUserInfo = async (token: string) => {
     try {
@@ -84,7 +88,6 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
     try {
       if (typeof google !== 'undefined' && google.accounts?.oauth2) {
         const clientId = process.env.GOOGLE_CLIENT_ID;
-        
         if (!clientId || clientId.includes("placeholder")) {
           setAuthError("Configuration Missing: GOOGLE_CLIENT_ID environment variable is not set.");
           return;
@@ -98,27 +101,16 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
               const token = response.access_token;
               setAccessToken(token);
               localStorage.setItem('axiom_sync_token', token);
-              setSyncStatus('success');
               setAuthError(null);
               fetchUserInfo(token);
-            } else if (response.error) {
-              setAuthError(`Auth Error: ${response.error_description || response.error}`);
-              setSyncStatus('error');
+              window.location.reload(); 
             }
-          },
-          error_callback: (err: any) => {
-            setAuthError(`OAuth Client Error: ${err.message || 'Check your Client ID and Authorized Origins'}`);
-            setSyncStatus('error');
           }
         });
         client.requestAccessToken();
-      } else {
-        setAuthError("GSI library not initialized. Verify internet connectivity.");
       }
     } catch (e: any) {
-      console.error("GSI Init Error:", e);
-      setAuthError(`System Error: ${e.message || 'Unknown initialization failure'}`);
-      setSyncStatus('error');
+      setAuthError(`System Error: ${e.message}`);
     }
   };
 
@@ -127,124 +119,33 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
     setUserInfo(null);
     localStorage.removeItem('axiom_sync_token');
     localStorage.removeItem('axiom_sync_profile');
-    setSyncStatus('idle');
     setAuthError(null);
-  };
-
-  const getOrCreateAxiomFolder = async (token: string) => {
-    const q = encodeURIComponent("name = 'Axiom' and mimeType = 'application/vnd.google-apps.folder' and trashed = false");
-    const listResponse = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const listData = await listResponse.json();
-
-    if (listData.files && listData.files.length > 0) {
-      return listData.files[0].id;
-    }
-
-    // Create folder
-    const createResponse = await fetch('https://www.googleapis.com/drive/v3/files', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        name: 'Axiom',
-        mimeType: 'application/vnd.google-apps.folder',
-      }),
-    });
-    const createData = await createResponse.json();
-    return createData.id;
-  };
-
-  const cleanupOldSyncs = async (token: string, folderId: string) => {
-    try {
-      const q = encodeURIComponent(`'${folderId}' in parents and name contains "sync." and trashed = false`);
-      const listResponse = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&fields=files(id, name)`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const listData = await listResponse.json();
-
-      if (listData.files && listData.files.length > 5) {
-        const toDelete = listData.files.slice(5);
-        for (const file of toDelete) {
-          await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}`, {
-            method: 'DELETE',
-            headers: { Authorization: `Bearer ${token}` },
-          });
-        }
-      }
-    } catch (e) {
-      console.error("Sync cleanup failed:", e);
-    }
-  };
-
-  const performSync = async () => {
-    if (!accessToken) return loginWithGoogle();
-    setSyncStatus('syncing');
-    
-    try {
-      const folderId = await getOrCreateAxiomFolder(accessToken);
-      
-      const manifest = {
-        version: '1.7',
-        timestamp: Date.now(),
-        data: { entries, plans }
-      };
-
-      const fileContent = JSON.stringify(manifest);
-      const metadata = {
-        name: `${customSyncName}.json`,
-        mimeType: 'application/json',
-        parents: [folderId]
-      };
-
-      const form = new FormData();
-      form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-      form.append('file', new Blob([fileContent], { type: 'application/json' }));
-
-      const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${accessToken}` },
-        body: form,
-      });
-
-      if (response.ok) {
-        await cleanupOldSyncs(accessToken, folderId);
-        setSyncStatus('success');
-        setTimeout(() => setSyncStatus('idle'), 3000);
-      } else {
-        if (response.status === 401) {
-          handleLogout();
-          throw new Error('Session expired. Please re-link account.');
-        }
-        const errData = await response.json();
-        throw new Error(errData.error?.message || 'Upload failed');
-      }
-    } catch (e: any) {
-      console.error(e);
-      setAuthError(`Sync Failure: ${e.message}`);
-      setSyncStatus('error');
-    }
+    window.location.reload();
   };
 
   const loadLatestSync = async () => {
     if (!accessToken) return loginWithGoogle();
-    setSyncStatus('loading');
+    setLocalSyncStatus('loading');
 
     try {
-      const folderId = await getOrCreateAxiomFolder(accessToken);
+      const q_folder = encodeURIComponent("name = 'Axiom' and mimeType = 'application/vnd.google-apps.folder' and trashed = false");
+      const listFolder = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q_folder}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const folderData = await listFolder.json();
+      const folderId = folderData.files?.[0]?.id;
+
+      if (!folderId) {
+        setAuthError("No cloud data found.");
+        setLocalSyncStatus('idle');
+        return;
+      }
+
       const q = encodeURIComponent(`'${folderId}' in parents and name contains "sync." and name contains ".json" and trashed = false`);
       const listResponse = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       
-      if (listResponse.status === 401) {
-        handleLogout();
-        throw new Error('Session expired. Please re-link account.');
-      }
-
       const listData = await listResponse.json();
 
       if (listData.files && listData.files.length > 0) {
@@ -253,21 +154,19 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
           headers: { Authorization: `Bearer ${accessToken}` },
         });
         const manifest = await fileResponse.json();
-
         if (manifest.data) {
           onUpdateEntries(manifest.data.entries || []);
           onUpdatePlans(manifest.data.plans || []);
-          setSyncStatus('success');
-          setTimeout(() => setSyncStatus('idle'), 3000);
+          setLocalSyncStatus('success');
+          setTimeout(() => setLocalSyncStatus('idle'), 2000);
         }
       } else {
-        setAuthError("No cloud manifests detected in the Axiom folder.");
-        setSyncStatus('idle');
+        setAuthError("No sync manifests found.");
+        setLocalSyncStatus('idle');
       }
     } catch (e: any) {
-      console.error(e);
       setAuthError(`Load Failure: ${e.message}`);
-      setSyncStatus('error');
+      setLocalSyncStatus('error');
     }
   };
 
@@ -276,20 +175,13 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
       setAnalysis("Insufficient data for pattern discovery. Continue logging sessions.");
       return;
     }
-
     setLoading(true);
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const prompt = `Act as an elite sports scientist. Analyze these training logs for patterns, fatigue accumulation, and identity state transitions. Provide a concise executive summary of the trainee's current performance trajectory. Data: ${JSON.stringify(entries.slice(-15))}`;
-      
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-pro-preview',
-        contents: prompt
-      });
-      
+      const response = await ai.models.generateContent({ model: 'gemini-3-pro-preview', contents: prompt });
       setAnalysis(response.text || "Discovery engine returned no insights.");
     } catch (error) {
-      console.error(error);
       setAnalysis("Error initializing discovery engine.");
     } finally {
       setLoading(false);
@@ -297,16 +189,17 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-white flex items-center gap-3">
-            <BrainCircuit className="text-violet-500" />
-            Pattern Discovery
-          </h2>
-          <p className="text-sm text-neutral-500 font-mono">AI-driven identity state correlation</p>
+    <div className="space-y-8">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-neutral-800 pb-4">
+        <div className="flex items-center gap-4">
+          <div className="shrink-0 flex items-center">
+             <BrainCircuit className="text-violet-500" size={28} />
+          </div>
+          <div className="flex flex-col">
+            <h2 className="text-2xl font-bold text-white leading-none">Pattern Discovery</h2>
+            <p className="text-[10px] sm:text-xs text-neutral-500 font-mono uppercase tracking-wider mt-1">AI-driven identity state correlation</p>
+          </div>
         </div>
-        
         <button 
           onClick={performDiscovery}
           disabled={loading}
@@ -331,9 +224,7 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
             ) : analysis ? (
               <div className="prose prose-invert max-w-none relative z-10">
                 <div className="text-[10px] font-mono text-violet-400 uppercase tracking-widest mb-4">Discovery Results v1.1</div>
-                <div className="whitespace-pre-wrap text-neutral-300 leading-relaxed font-sans text-sm md:text-base">
-                  {analysis}
-                </div>
+                <div className="whitespace-pre-wrap text-neutral-300 leading-relaxed font-sans text-sm md:text-base">{analysis}</div>
               </div>
             ) : (
               <div className="h-full flex flex-col items-center justify-center text-center space-y-4 opacity-50">
@@ -360,32 +251,20 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
           </div>
 
           <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-5 relative group overflow-hidden shadow-xl">
-            <div className="absolute top-0 left-0 w-1 h-full bg-emerald-500/50 group-hover:bg-emerald-500 transition-all" />
-            
             <div className="flex justify-between items-start mb-4">
                 <div className="flex-1 min-w-0">
                     <h3 className="text-sm font-bold text-white flex items-center gap-2">
                         {accessToken ? <Cloud className="text-emerald-500" size={16} /> : <CloudOff className="text-neutral-600" size={16} />}
                         System Sync
                     </h3>
-                    {userInfo && (
-                      <p className="text-[10px] text-neutral-500 font-mono ml-6 truncate" title={userInfo.email}>
-                        {userInfo.name}
-                      </p>
-                    )}
+                    {userInfo && <p className="text-[10px] text-neutral-500 font-mono ml-6 truncate" title={userInfo.email}>{userInfo.name}</p>}
                 </div>
                 {accessToken ? (
-                    <button 
-                        onClick={handleLogout}
-                        className="px-2 py-1 bg-rose-950/40 hover:bg-rose-900/60 text-rose-400 border border-rose-500/30 text-[9px] font-bold rounded transition-all flex items-center gap-1 uppercase"
-                    >
+                    <button onClick={handleLogout} className="px-2 py-1 bg-rose-950/40 hover:bg-rose-900/60 text-rose-400 border border-rose-500/30 text-[9px] font-bold rounded transition-all flex items-center gap-1 uppercase">
                         <LogOut size={10} /> Logout
                     </button>
                 ) : (
-                    <button 
-                        onClick={loginWithGoogle}
-                        className="px-2 py-1 bg-neutral-100 hover:bg-white text-black text-[9px] font-bold rounded transition-all flex items-center gap-1 uppercase"
-                    >
+                    <button onClick={loginWithGoogle} className="px-2 py-1 bg-neutral-100 hover:bg-white text-black text-[9px] font-bold rounded transition-all flex items-center gap-1 uppercase">
                         <Link size={10} /> Link
                     </button>
                 )}
@@ -398,66 +277,46 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
                     <div className="text-[10px] text-rose-300 leading-tight">
                       <span className="font-bold uppercase block mb-1">Authorization Failed</span>
                       {authError}
-                      <div className="mt-2 pt-2 border-t border-rose-500/20 text-[9px] opacity-70">
-                        Ensure your origin URL is whitelisted in Google Console.
-                      </div>
                     </div>
                   </div>
                 )}
-
                 <div className="space-y-2">
-                    <label className="text-[9px] font-mono text-neutral-600 uppercase tracking-widest block flex items-center justify-between">
-                        Manifest Pattern
-                        <span title="Identifies the sync file in the 'Axiom' folder" className="cursor-help">
-                          <Info size={10} className="text-neutral-700" />
-                        </span>
-                    </label>
+                    <label className="text-[9px] font-mono text-neutral-600 uppercase tracking-widest block flex items-center justify-between">Manifest Pattern</label>
                     <div className="flex bg-black/40 border border-neutral-800 rounded-lg p-2 items-center gap-2">
-                        <RefreshCw size={12} className={`text-neutral-500 ${syncStatus === 'syncing' ? 'animate-spin text-emerald-500' : ''}`} />
-                        <input 
-                            type="text"
-                            value={customSyncName}
-                            onChange={(e) => setCustomSyncName(e.target.value)}
-                            className="bg-transparent border-none text-[10px] font-mono text-neutral-300 focus:ring-0 flex-1 p-0"
-                        />
+                        <RefreshCw size={12} className={`text-neutral-500 ${externalSyncStatus === 'syncing' ? 'animate-spin text-emerald-500' : ''}`} />
+                        <input type="text" value={customSyncName} readOnly className="bg-transparent border-none text-[10px] font-mono text-neutral-300 focus:ring-0 flex-1 p-0 cursor-default" />
                     </div>
                 </div>
-
                 <div className="flex flex-col gap-2">
-                    <button 
-                        onClick={performSync}
-                        disabled={syncStatus === 'syncing' || !accessToken}
-                        className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-30 text-white rounded-lg font-bold text-[10px] flex items-center justify-center gap-2 transition-all"
-                    >
-                        <UploadCloud size={14} /> 
-                        {syncStatus === 'syncing' ? 'Syncing...' : 'Manual Sync'}
+                    <button onClick={onManualSync} disabled={externalSyncStatus === 'syncing' || !accessToken} className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-30 text-white rounded-lg font-bold text-[10px] flex items-center justify-center gap-2 transition-all">
+                        <UploadCloud size={14} /> {externalSyncStatus === 'syncing' ? 'Syncing...' : 'Force Sync Now'}
                     </button>
-                    <button 
-                        onClick={loadLatestSync}
-                        disabled={syncStatus === 'loading' || !accessToken}
-                        className="w-full py-2 bg-neutral-800 hover:bg-neutral-700 disabled:opacity-30 text-white rounded-lg font-bold text-[10px] flex items-center justify-center gap-2 transition-all"
-                    >
-                        <DownloadCloud size={14} /> 
-                        {syncStatus === 'loading' ? 'Loading...' : 'Load Latest'}
+                    <button onClick={loadLatestSync} disabled={localSyncStatus === 'loading' || !accessToken} className="w-full py-2 bg-neutral-800 hover:bg-neutral-700 disabled:opacity-30 text-white rounded-lg font-bold text-[10px] flex items-center justify-center gap-2 transition-all">
+                        <DownloadCloud size={14} /> {localSyncStatus === 'loading' ? 'Loading...' : 'Import Last Cloud Data'}
                     </button>
                 </div>
             </div>
           </div>
 
-          {!accessToken && (
+          {accessToken ? (
+            <div className="bg-emerald-900/10 border border-emerald-800/30 rounded-xl p-5 shadow-xl animate-in fade-in slide-in-from-bottom-2">
+              <div className="flex items-center gap-2 mb-2">
+                <Zap size={12} className="text-emerald-400" />
+                <span className="text-[10px] font-mono text-emerald-400 uppercase font-bold text-left">Changes synced automatically</span>
+              </div>
+              <p className="text-[10px] text-neutral-400 leading-relaxed text-left">
+                Changes made to entries or blueprints will be synced automatically to your Google Drive account.
+              </p>
+            </div>
+          ) : (
             <div className="bg-violet-900/10 border border-violet-800/30 rounded-xl p-5 shadow-xl animate-in fade-in slide-in-from-bottom-2">
                <div className="flex items-center gap-2 mb-2">
                   <AlertTriangle size={12} className="text-violet-400" />
-                  <span className="text-[10px] font-mono text-violet-400 uppercase font-bold">Sync Not Linked</span>
+                  <span className="text-[10px] font-mono text-violet-400 uppercase font-bold text-left">Sync Not Linked</span>
                </div>
-               <p className="text-[10px] text-neutral-400 leading-relaxed">
-                 Cloud synchronization is currently offline. To enable remote manifest persistence and cross-device recovery, establish a secure link with Google Drive. Files are stored in the 'Axiom' folder.
+               <p className="text-[10px] text-neutral-400 leading-relaxed text-left">
+                 Cloud synchronization is currently offline. To enable remote manifest persistence and cross-device recovery, establish a secure link with Google Drive.
                </p>
-               <div className="mt-4 pt-3 border-t border-violet-800/20">
-                 <p className="text-[9px] text-neutral-500 font-mono uppercase">
-                   Environment Status: {(!process.env.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID.includes('placeholder')) ? 'CONFIG_PENDING' : 'READY'}
-                 </p>
-               </div>
             </div>
           )}
         </div>

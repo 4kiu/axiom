@@ -35,34 +35,36 @@ const History: React.FC<HistoryProps> = ({ entries, plans, onEditEntry }) => {
   const selectedWeekStart = startOfWeek(subWeeks(new Date(), weekOffset), { weekStartsOn: 0 });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-neutral-800 pb-4">
-        <div>
-          <h2 className="text-2xl font-bold text-white flex items-center gap-3">
-            <Calendar className="text-neutral-500" />
-            Archive Explorer
-          </h2>
-          <p className="text-sm text-neutral-500 font-mono">Temporal training pattern navigation</p>
+        <div className="flex items-center gap-4">
+          <div className="shrink-0 flex items-center">
+             <Calendar className="text-neutral-500" size={28} />
+          </div>
+          <div className="flex flex-col">
+            <h2 className="text-2xl font-bold text-white leading-none">Archive Explorer</h2>
+            <p className="text-[10px] sm:text-xs text-neutral-500 font-mono uppercase tracking-wider mt-1">Temporal training pattern navigation</p>
+          </div>
         </div>
 
-        <div className="flex items-center gap-4 bg-neutral-900 p-2 rounded-xl border border-neutral-800 self-stretch sm:self-auto justify-between">
+        <div className="flex items-center gap-2 bg-neutral-900 p-1 rounded-xl border border-neutral-800 self-stretch sm:self-auto justify-between">
           <button 
             onClick={() => setWeekOffset(prev => prev + 1)}
-            className="p-2 hover:bg-neutral-800 rounded-lg transition-colors text-neutral-400 hover:text-white"
+            className="p-1.5 hover:bg-neutral-800 rounded-lg transition-colors text-neutral-400 hover:text-white"
           >
-            <ChevronLeft size={20} />
+            <ChevronLeft size={18} />
           </button>
           
-          <div className="text-sm font-bold min-w-[200px] text-center font-mono">
+          <div className="text-[13px] font-bold min-w-[170px] sm:min-w-[190px] text-center font-mono text-neutral-200">
             {format(selectedWeekStart, 'MMM dd')} — {format(addDays(selectedWeekStart, 7), 'MMM dd, yyyy')}
           </div>
 
           <button 
             onClick={() => setWeekOffset(prev => Math.max(0, prev - 1))}
             disabled={weekOffset === 0}
-            className={`p-2 rounded-lg transition-colors ${weekOffset === 0 ? 'text-neutral-700 cursor-not-allowed' : 'hover:bg-neutral-800 text-neutral-400 hover:text-white'}`}
+            className={`p-1.5 rounded-lg transition-colors ${weekOffset === 0 ? 'text-neutral-700 cursor-not-allowed' : 'hover:bg-neutral-800 text-neutral-400 hover:text-white'}`}
           >
-            <ChevronRight size={20} />
+            <ChevronRight size={18} />
           </button>
         </div>
       </div>

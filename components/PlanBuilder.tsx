@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { WorkoutPlan, Exercise } from '../types';
 import { 
   Plus, 
@@ -114,9 +114,22 @@ interface PlanBuilderProps {
   plans: WorkoutPlan[];
   onUpdatePlans: (plans: WorkoutPlan[]) => void;
   onLogPlan?: (planId: string) => void;
+  // External navigation props from App.tsx
+  externalIsEditing?: boolean;
+  externalEditingPlanId?: string | null;
+  onOpenEditor?: (planId: string | null) => void;
+  onCloseEditor?: () => void;
 }
 
-const PlanBuilder: React.FC<PlanBuilderProps> = ({ plans, onUpdatePlans, onLogPlan }) => {
+const PlanBuilder: React.FC<PlanBuilderProps> = ({ 
+  plans, 
+  onUpdatePlans, 
+  onLogPlan,
+  externalIsEditing,
+  externalEditingPlanId,
+  onOpenEditor,
+  onCloseEditor
+}) => {
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [activePicker, setActivePicker] = useState<string | null>(null); // Exercise ID
@@ -130,15 +143,49 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({ plans, onUpdatePlans, onLogPl
   // Intermediate input state to handle typing decimals naturally
   const [inputStates, setInputStates] = useState<Record<string, string>>({});
 
+  // Synchronize internal state with external navigation state for back-gesture support
+  useEffect(() => {
+    if (externalIsEditing !== undefined) {
+      if (!externalIsEditing) {
+        setIsCreating(false);
+        setEditingPlanId(null);
+        setInputStates({});
+      } else {
+        // If external says editing but internal doesn't have plan yet, populate it
+        if (externalEditingPlanId && editingPlanId !== externalEditingPlanId) {
+          const plan = plans.find(p => p.id === externalEditingPlanId);
+          if (plan) {
+            setTempPlan(plan);
+            setEditingPlanId(externalEditingPlanId);
+          }
+        } else if (!externalEditingPlanId && !isCreating) {
+           // External says creating
+           setTempPlan({
+             id: crypto.randomUUID(),
+             name: 'New Blueprint',
+             description: '',
+             exercises: [],
+             createdAt: Date.now()
+           });
+           setIsCreating(true);
+        }
+      }
+    }
+  }, [externalIsEditing, externalEditingPlanId, plans]);
+
   const startNewPlan = () => {
-    setIsCreating(true);
-    setTempPlan({
-      id: crypto.randomUUID(),
-      name: 'New Blueprint',
-      description: '',
-      exercises: [],
-      createdAt: Date.now()
-    });
+    if (onOpenEditor) {
+      onOpenEditor(null);
+    } else {
+      setIsCreating(true);
+      setTempPlan({
+        id: crypto.randomUUID(),
+        name: 'New Blueprint',
+        description: '',
+        exercises: [],
+        createdAt: Date.now()
+      });
+    }
   };
 
   const savePlan = () => {
@@ -152,9 +199,13 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({ plans, onUpdatePlans, onLogPl
       onUpdatePlans([...plans, finalPlan]);
     }
     
-    setIsCreating(false);
-    setEditingPlanId(null);
-    setInputStates({});
+    if (onCloseEditor) {
+      onCloseEditor();
+    } else {
+      setIsCreating(false);
+      setEditingPlanId(null);
+      setInputStates({});
+    }
   };
 
   const deletePlan = (id: string) => {
@@ -230,25 +281,30 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({ plans, onUpdatePlans, onLogPl
     return (
       <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
         <div className="flex justify-between items-center border-b border-neutral-800 pb-4">
-          <div className="flex-1 max-w-xl">
-            <input 
-              type="text"
-              value={tempPlan.name}
-              onFocus={(e) => e.target.select()}
-              onChange={(e) => setTempPlan({ ...tempPlan, name: e.target.value })}
-              className="bg-transparent border-none text-2xl font-bold text-white focus:ring-0 w-full placeholder-neutral-700"
-              placeholder="Blueprint Name..."
-            />
-            <input 
-              type="text"
-              value={tempPlan.description}
-              onChange={(e) => setTempPlan({ ...tempPlan, description: e.target.value })}
-              className="bg-transparent border-none text-sm text-neutral-500 font-mono w-full focus:ring-0"
-              placeholder="System objective"
-            />
+          <div className="flex-1 max-w-xl flex items-center gap-4">
+            <div className="shrink-0">
+               <BookOpen className="text-neutral-500" size={28} />
+            </div>
+            <div className="flex flex-col flex-1">
+              <input 
+                type="text"
+                value={tempPlan.name}
+                onFocus={(e) => e.target.select()}
+                onChange={(e) => setTempPlan({ ...tempPlan, name: e.target.value })}
+                className="bg-transparent border-none text-2xl font-bold text-white focus:ring-0 w-full placeholder-neutral-700 p-0 leading-tight"
+                placeholder="Blueprint Name..."
+              />
+              <input 
+                type="text"
+                value={tempPlan.description}
+                onChange={(e) => setTempPlan({ ...tempPlan, description: e.target.value })}
+                className="bg-transparent border-none text-[10px] sm:text-xs text-neutral-500 font-mono focus:ring-0 p-0 uppercase tracking-wider mt-1"
+                placeholder="System objective"
+              />
+            </div>
           </div>
           <div className="flex gap-2">
-            <button onClick={() => { setIsCreating(false); setEditingPlanId(null); setInputStates({}); }} className="p-2 text-neutral-500 hover:text-white transition-colors">
+            <button onClick={() => { if (onCloseEditor) onCloseEditor(); else { setIsCreating(false); setEditingPlanId(null); setInputStates({}); } }} className="p-2 text-neutral-500 hover:text-white transition-colors">
               <X size={20} />
             </button>
             <button onClick={savePlan} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-transform active:scale-95">
@@ -411,12 +467,14 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({ plans, onUpdatePlans, onLogPl
   return (
     <div className="space-y-8">
       <div className="flex justify-between items-center border-b border-neutral-800 pb-4">
-        <div>
-          <h2 className="text-2xl font-bold text-white flex items-center gap-3">
-            <BookOpen className="text-neutral-500" />
-            Blueprints
-          </h2>
-          <p className="text-sm text-neutral-500 font-mono">Modular training profile creation</p>
+        <div className="flex items-center gap-4">
+          <div className="shrink-0">
+             <BookOpen className="text-neutral-500" size={28} />
+          </div>
+          <div className="flex flex-col">
+            <h2 className="text-2xl font-bold text-white leading-none">Blueprints</h2>
+            <p className="text-[10px] sm:text-xs text-neutral-500 font-mono uppercase tracking-wider mt-1">Modular training profile creation</p>
+          </div>
         </div>
         <button 
           onClick={startNewPlan}
@@ -440,7 +498,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({ plans, onUpdatePlans, onLogPl
           {plans.map((plan: WorkoutPlan) => (
             <div 
               key={plan.id} 
-              onClick={() => { setEditingPlanId(plan.id); setTempPlan(plan); }}
+              onClick={() => { if (onOpenEditor) onOpenEditor(plan.id); else { setEditingPlanId(plan.id); setTempPlan(plan); } }}
               className="bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden group hover:border-neutral-700 transition-all shadow-xl cursor-pointer"
             >
               <div className="p-6">
