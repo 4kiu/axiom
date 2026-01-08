@@ -1,11 +1,11 @@
-
 <!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Axiom | Training Operating System</title>
-    <meta name="theme-color" content="#0a0a0a" />
+    <meta name="theme-color" content="#121212" />
+    <link rel="manifest" href="./manifest.json">
     <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/2592/2592201.png">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -15,7 +15,7 @@
     <style>
       body {
         font-family: 'Inter', sans-serif;
-        background-color: #0a0a0a;
+        background-color: #121212;
         color: #e5e5e5;
         margin: 0;
       }
@@ -27,18 +27,16 @@
         height: 6px;
       }
       ::-webkit-scrollbar-track {
-        background: #0a0a0a;
+        background: #121212;
       }
       ::-webkit-scrollbar-thumb {
-        background: #262626;
+        background: #333;
         border-radius: 3px;
       }
       ::-webkit-scrollbar-thumb:hover {
-        background: #404040;
+        background: #444;
       }
     </style>
-
-<link rel="stylesheet" href="/index.css">
   <script type="importmap">
 {
   "imports": {
@@ -53,9 +51,9 @@
   }
 }
 </script>
-  <script type="module" crossorigin src="./assets/main-B1jRqNOD.js"></script>
 </head>
   <body>
     <div id="root"></div>
-</body>
+    <script type="module" src="./index.tsx"></script>
+  </body>
 </html>

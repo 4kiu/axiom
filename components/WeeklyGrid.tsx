@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { 
   addDays, 
@@ -67,7 +66,8 @@ const WeeklyGrid: React.FC<WeeklyGridProps> = ({
     return entries.some(e => isSameDay(startOfDay(new Date(e.timestamp)), startOfDay(day)));
   };
 
-  const EntryCard = ({ entry }: { entry: WorkoutEntry }) => {
+  // Fix: Use React.FC to ensure standard React props like 'key' are recognized correctly by the TypeScript compiler
+  const EntryCard: React.FC<{ entry: WorkoutEntry }> = ({ entry }) => {
     const meta = IDENTITY_METADATA[entry.identity];
     const isOverdrive = entry.identity === IdentityState.OVERDRIVE;
     const animationClass = isOverdrive ? 'animate-[pulse-overdrive_3s_infinite_ease-in-out]' : '';
@@ -124,7 +124,7 @@ const WeeklyGrid: React.FC<WeeklyGridProps> = ({
   };
 
   return (
-    <div className="bg-[#0d0d0d] border border-neutral-800 rounded-2xl overflow-hidden relative h-full flex flex-col shadow-2xl">
+    <div className="bg-[#121212] border border-neutral-800 rounded-2xl overflow-hidden relative h-full flex flex-col shadow-2xl">
       <div className="absolute inset-0 pointer-events-none opacity-[0.12]" 
            style={{ backgroundImage: 'radial-gradient(#555 1px, transparent 1px)', backgroundSize: '24px 24px' }} 
       />
@@ -146,7 +146,7 @@ const WeeklyGrid: React.FC<WeeklyGridProps> = ({
           transition: background-color 0.2s ease, border-color 0.2s ease;
         }
         .matrix-cell:hover {
-          background-color: rgba(255, 255, 255, 0.03);
+          background-color: rgba(255, 255, 255, 0.05);
         }
         .mobile-add-zone:active .add-icon,
         .mobile-add-zone:hover .add-icon {

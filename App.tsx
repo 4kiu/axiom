@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { IdentityState, WorkoutEntry, IDENTITY_METADATA, WorkoutPlan } from './types.ts';
 import WeeklyGrid from './components/WeeklyGrid.tsx';
@@ -153,37 +152,37 @@ const App: React.FC = () => {
   );
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 flex flex-col font-sans pb-20 sm:pb-0">
-      <header className="border-b border-neutral-800 p-4 sticky top-0 bg-[#0a0a0a]/80 backdrop-blur-md z-30">
+    <div className="min-h-screen bg-[#121212] text-neutral-200 flex flex-col font-sans pb-20 sm:pb-0">
+      <header className="border-b border-neutral-800 p-4 sticky top-0 bg-[#121212]/90 backdrop-blur-md z-30">
         <div className="max-w-7xl mx-auto flex flex-row justify-between items-center">
           <div className="flex items-center gap-3">
             <AxiomLogo className="w-8 h-8" />
             <div className="flex flex-col">
-              <h1 className="text-lg font-mono font-bold tracking-tight uppercase leading-none">Axiom v1.7</h1>
+              <h1 className="text-lg font-mono font-bold tracking-tight uppercase leading-none text-white">Axiom v1.7</h1>
               <span className="text-[9px] text-neutral-500 font-mono hidden sm:inline uppercase">Personal Intelligence OS</span>
               <span className="text-[9px] text-neutral-500 font-mono sm:hidden uppercase tracking-tighter">OS_CORE</span>
             </div>
           </div>
-          <nav className="hidden sm:flex items-center gap-2 bg-neutral-900 p-1.5 rounded-xl border border-neutral-800"><NavItems /></nav>
+          <nav className="hidden sm:flex items-center gap-2 bg-neutral-900/50 p-1.5 rounded-xl border border-neutral-800"><NavItems /></nav>
           <div className="sm:hidden flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
             <span className="text-[9px] font-mono text-neutral-600 uppercase tracking-tighter">Link_Up</span>
           </div>
         </div>
       </header>
-      <main className="flex-1 max-w-7xl mx-auto w-full p-4 md:p-6 space-y-8">
+      <main className="flex-1 max-w-7xl mx-auto w-full p-4 md:p-6 space-y-8 bg-[#121212]">
         {view === 'current' && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-stretch">
               <div className="lg:col-span-3 h-full"><WeeklyGrid isCompact={true} entries={entries} plans={plans} onEntryClick={handleEditEntry} onCellClick={handleCellClick} weekStart={dashboardWeekStart} /></div>
               <div className="hidden lg:block h-full">
-                 <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-5 h-full flex flex-col">
+                 <div className="bg-[#1a1a1a] border border-neutral-800 rounded-xl p-5 h-full flex flex-col">
                     <h3 className="text-xs font-mono text-neutral-500 uppercase tracking-widest mb-4">Identity Matrix</h3>
                     <div className="space-y-4 mb-6">
                       {Object.entries(IDENTITY_METADATA).map(([key, meta]) => (
                         <div key={key} className="flex gap-3">
                           <div className={`w-3 h-3 rounded-full mt-1 shrink-0 ${meta.color}`} />
-                          <div><div className="text-sm font-bold">{meta.label}</div><div className="text-[10px] text-neutral-500 leading-tight">{meta.description}</div></div>
+                          <div><div className="text-sm font-bold text-neutral-200">{meta.label}</div><div className="text-[10px] text-neutral-500 leading-tight">{meta.description}</div></div>
                         </div>
                       ))}
                     </div>
@@ -205,7 +204,7 @@ const App: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <StatusPanel entries={entries} onAction={() => setIsLogModalOpen(true)} />
               <PointsCard entries={entries} weekStart={dashboardWeekStart} />
-              <div className="bg-neutral-900/50 border border-neutral-800 rounded-xl p-6 flex flex-col justify-between">
+              <div className="bg-[#1a1a1a] border border-neutral-800 rounded-xl p-6 flex flex-col justify-between">
                 <div>
                   <h3 className="text-sm font-mono text-neutral-500 uppercase tracking-widest mb-2">System Rules</h3>
                   <ul className="text-xs space-y-3 text-neutral-400">
@@ -232,16 +231,16 @@ const App: React.FC = () => {
           />
         )}
       </main>
-      <nav className={`sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#0a0a0a]/95 backdrop-blur-xl border-t border-neutral-800 px-6 py-4 flex justify-between items-center transition-transform duration-300 ease-in-out ${isNavVisible ? 'translate-y-0' : 'translate-y-full'}`}><NavItems /></nav>
+      <nav className={`sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#121212]/95 backdrop-blur-xl border-t border-neutral-800 px-6 py-4 flex justify-between items-center transition-transform duration-300 ease-in-out ${isNavVisible ? 'translate-y-0' : 'translate-y-full'}`}><NavItems /></nav>
       {isLogModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={handleCloseModal} />
-          <div className="relative bg-[#0d0d0d]/70 backdrop-blur-xl border border-neutral-800 w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+          <div className="relative bg-[#1a1a1a] border border-neutral-800 w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             <LogAction entries={entries} plans={plans} onSave={addOrUpdateEntry} onDelete={deleteEntry} onCancel={handleCloseModal} initialDate={preselectedLogData?.date} initialIdentity={preselectedLogData?.identity} editingEntry={preselectedLogData?.editingEntry} />
           </div>
         </div>
       )}
-      <footer className="hidden sm:flex border-t border-neutral-800 p-2 text-[10px] font-mono text-neutral-600 justify-between bg-black">
+      <footer className="hidden sm:flex border-t border-neutral-800 p-2 text-[10px] font-mono text-neutral-600 justify-between bg-[#0e0e0e]">
         <div className="flex gap-4">
           <span>&copy; 2026 Axiom</span>
           <a href="https://github.com/4kiu/axiom" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-neutral-400 hover:text-white transition-colors"><Github size={12} /> Source Access</a>
