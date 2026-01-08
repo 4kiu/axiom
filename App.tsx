@@ -21,7 +21,11 @@ import {
   Edit3,
   Github,
   Zap,
-  LogOut
+  LogOut,
+  Cloud,
+  CloudOff,
+  RefreshCw,
+  AlertTriangle
 } from 'lucide-react';
 import { format, addWeeks, addDays, isSameDay } from 'date-fns';
 
@@ -82,6 +86,7 @@ const App: React.FC = () => {
   const [dashboardWeekOffset, setDashboardWeekOffset] = useState(0);
   const [preselectedLogData, setPreselectedLogData] = useState<{ date?: Date, identity?: IdentityState, editingEntry?: WorkoutEntry, initialPlanId?: string } | null>(null);
   const [exitWarning, setExitWarning] = useState(false);
+  const [syncNotice, setSyncNotice] = useState(false);
   
   const [isNavVisible, setIsNavVisible] = useState(true);
   const lastScrollY = useRef(0);
@@ -215,6 +220,15 @@ const App: React.FC = () => {
     // Requirement: Auto import latest sync when found or on refresh
     if (accessToken) {
       loadLatestSyncOnStartup(accessToken);
+    } else {
+      // Requirement: Prompt a warning if sync is not enabled on startup
+      const hasSeenWarning = sessionStorage.getItem('axiom_seen_sync_warning');
+      if (!hasSeenWarning) {
+        setSyncNotice(true);
+        sessionStorage.setItem('axiom_seen_sync_warning', 'true');
+        const timer = setTimeout(() => setSyncNotice(false), 8000);
+        return () => clearTimeout(timer);
+      }
     }
   }, [accessToken, loadLatestSyncOnStartup]);
 
@@ -376,6 +390,41 @@ const App: React.FC = () => {
     </>
   );
 
+  const SyncStatusIndicator = () => {
+    let statusText = accessToken ? 'Linked' : 'Offline';
+    let dotColor = accessToken ? 'bg-emerald-500' : 'bg-neutral-600';
+    let icon = accessToken ? <Cloud size={14} className="text-emerald-500" /> : <CloudOff size={14} className="text-neutral-600" />;
+
+    if (syncStatus === 'loading') {
+      statusText = 'Importing...';
+      dotColor = 'bg-amber-500';
+      icon = <RefreshCw size={14} className="text-amber-500 animate-spin" />;
+    } else if (syncStatus === 'syncing') {
+      statusText = 'Syncing...';
+      dotColor = 'bg-blue-500';
+      icon = <RefreshCw size={14} className="text-blue-500 animate-spin" />;
+    } else if (syncStatus === 'success' && accessToken) {
+      statusText = 'Success';
+      dotColor = 'bg-emerald-400';
+    } else if (syncStatus === 'error' && accessToken) {
+      statusText = 'Sync Error';
+      dotColor = 'bg-rose-500';
+      icon = <AlertTriangle size={14} className="text-rose-500" />;
+    }
+
+    return (
+      <div className="flex items-center gap-2 group cursor-pointer" title={statusText}>
+        <div className={`w-2 h-2 rounded-full ${dotColor} animate-pulse`} />
+        <span className="text-[10px] font-mono text-neutral-500 uppercase tracking-tighter whitespace-nowrap overflow-hidden max-w-[80px] sm:max-w-none transition-all">
+          {statusText}
+        </span>
+        <div className="hidden sm:block opacity-50 group-hover:opacity-100 transition-opacity">
+          {icon}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-[#121212] text-neutral-200 flex flex-col font-sans pb-20 sm:pb-0">
       <header className="border-b border-neutral-800 p-4 sticky top-0 bg-[#121212]/90 backdrop-blur-md z-30">
@@ -389,9 +438,8 @@ const App: React.FC = () => {
             </div>
           </div>
           <nav className="hidden sm:flex items-center gap-2 bg-neutral-900/50 p-1.5 rounded-xl border border-neutral-800"><NavItems /></nav>
-          <div className="sm:hidden flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${accessToken ? 'bg-emerald-500' : 'bg-neutral-600'} animate-pulse`} />
-            <span className="text-[9px] font-mono text-neutral-600 uppercase tracking-tighter">{accessToken ? 'Linked' : 'Offline'}</span>
+          <div className="flex items-center gap-4">
+            <SyncStatusIndicator />
           </div>
         </div>
       </header>
@@ -487,6 +535,18 @@ const App: React.FC = () => {
               initialPlanId={preselectedLogData?.initialPlanId}
             />
           </div>
+        </div>
+      )}
+      {syncNotice && (
+        <div className="fixed bottom-24 sm:bottom-8 left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-bottom-4 fade-in duration-300">
+          <button 
+            onClick={() => { setSyncNotice(false); changeView('discovery'); }}
+            className="bg-amber-500 text-black px-6 py-3 rounded-full font-mono text-[10px] font-bold uppercase tracking-[0.1em] shadow-2xl flex items-center gap-3 border border-white/20 hover:bg-amber-400 transition-colors"
+          >
+            <CloudOff size={14} />
+            Cloud Sync Disabled: Data is Local Only
+            <div className="px-1.5 py-0.5 bg-black/20 rounded text-[8px]">Link Now</div>
+          </button>
         </div>
       )}
       {exitWarning && (
