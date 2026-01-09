@@ -1,6 +1,6 @@
+
 import React, { useState, useEffect } from 'react';
 import { WorkoutEntry, IdentityState, WorkoutPlan } from '../types.ts';
-import { SyncMode } from '../App.tsx';
 import { GoogleGenAI } from '@google/genai';
 import { 
   BrainCircuit, 
@@ -15,10 +15,7 @@ import {
   RefreshCw,
   Link,
   LogOut,
-  AlertTriangle,
-  Zap,
-  ToggleLeft,
-  ToggleRight
+  Zap
 } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -39,8 +36,6 @@ interface DiscoveryPanelProps {
   onUpdatePlans: (plans: WorkoutPlan[]) => void;
   externalSyncStatus?: 'idle' | 'syncing' | 'loading' | 'success' | 'error';
   onManualSync?: () => void;
-  syncMode?: SyncMode;
-  onSetSyncMode?: (mode: SyncMode) => void;
 }
 
 const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({ 
@@ -49,9 +44,7 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
   onUpdateEntries, 
   onUpdatePlans,
   externalSyncStatus = 'idle',
-  onManualSync,
-  syncMode = 'off',
-  onSetSyncMode
+  onManualSync
 }) => {
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -61,7 +54,7 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
     return saved ? JSON.parse(saved) : null;
   });
   const [localSyncStatus, setLocalSyncStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
-  const [customSyncName, setCustomSyncName] = useState(() => `sync.${format(new Date(), 'ss.mm.HH.dd.MM.yyyy')}`);
+  const [customSyncName] = useState(() => `sync.${format(new Date(), 'ss.mm.HH.dd.MM.yyyy')}`);
   const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -184,33 +177,29 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
     }
   };
 
-  const toggleSyncMode = (target: SyncMode) => {
-    if (!onSetSyncMode) return;
-    onSetSyncMode(syncMode === target ? 'off' : target);
-  };
-
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
+    <div className="space-y-8 animate-in fade-in duration-500 pb-12 sm:pb-0">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-neutral-800 pb-4">
         <div className="flex items-center gap-4">
           <BrainCircuit className="text-violet-500" size={28} />
           <div className="flex flex-col">
-            <h2 className="text-2xl font-bold text-white">Pattern Discovery</h2>
-            <p className="text-[10px] text-neutral-500 font-mono uppercase tracking-wider">AI Analysis Engine</p>
+            <h2 className="text-2xl font-bold text-white leading-none">Pattern Discovery</h2>
+            <p className="text-[10px] text-neutral-500 font-mono uppercase tracking-wider mt-1">AI Analysis Engine</p>
           </div>
         </div>
-        <button onClick={performDiscovery} disabled={loading} className="px-6 py-2.5 bg-violet-600 hover:bg-violet-500 text-white rounded-lg transition-all font-bold flex items-center gap-2 disabled:opacity-50">
-          {loading ? <Loader2 className="animate-spin" size={18} /> : <TrendingUp size={18} />} Initialize Analysis
+        <button onClick={performDiscovery} disabled={loading} className="w-full sm:w-auto px-6 py-2.5 bg-violet-600 hover:bg-violet-500 text-white rounded-lg transition-all font-bold flex items-center justify-center gap-2 disabled:opacity-50">
+          {loading ? <Loader2 className="animate-spin" size={18} /> : <TrendingUp size={18} />} 
+          <span>Initialize Analysis</span>
         </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="md:col-span-2">
-          <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-8 min-h-[400px] shadow-2xl relative overflow-hidden">
+      <div className="flex flex-col lg:grid lg:grid-cols-3 gap-6 items-stretch">
+        <div className="lg:col-span-2 order-2 lg:order-1 flex flex-col h-full">
+          <div className={`flex-1 bg-neutral-900 border border-neutral-800 rounded-2xl p-6 sm:p-8 shadow-2xl relative overflow-hidden flex flex-col transition-all duration-300 ${!analysis && !loading ? 'min-h-[160px] lg:h-full' : 'min-h-[400px] lg:h-full'}`}>
             {loading ? (
-              <div className="h-full flex flex-col items-center justify-center space-y-4">
-                <div className="w-16 h-16 border-4 border-violet-500/20 rounded-full border-t-violet-500 animate-spin" />
-                <div className="text-sm font-mono text-neutral-500 animate-pulse">Scanning identity matrices...</div>
+              <div className="flex-1 flex flex-col items-center justify-center space-y-4">
+                <div className="w-12 h-12 sm:w-16 sm:h-16 border-4 border-violet-500/20 rounded-full border-t-violet-500 animate-spin" />
+                <div className="text-[10px] sm:text-sm font-mono text-neutral-500 animate-pulse">Scanning identity matrices...</div>
               </div>
             ) : analysis ? (
               <div className="prose prose-invert max-w-none">
@@ -218,71 +207,77 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
                 <div className="whitespace-pre-wrap text-neutral-300 leading-relaxed text-sm md:text-base">{analysis}</div>
               </div>
             ) : (
-              <div className="h-full flex flex-col items-center justify-center text-center space-y-4 opacity-50">
-                <BarChart3 size={48} className="text-neutral-700" />
-                <p className="text-neutral-400">System idle. Patterns requires manual initialization.</p>
+              <div className="flex-1 flex flex-col items-center justify-center text-center space-y-2 sm:space-y-4 opacity-50">
+                <BarChart3 className="text-neutral-700 w-8 h-8 sm:w-12 sm:h-12" />
+                <p className="text-neutral-400 text-[11px] sm:text-sm max-w-[180px] sm:max-w-none">System idle. Patterns require manual initialization.</p>
               </div>
             )}
           </div>
         </div>
 
-        <div className="space-y-4">
+        <div className="space-y-6 order-1 lg:order-2 flex flex-col h-full">
           <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-5 shadow-xl">
             <h3 className="text-xs font-mono text-neutral-500 uppercase tracking-widest mb-3 flex items-center gap-2">
               <ShieldCheck size={14} className="text-emerald-500" /> Continuity Score
             </h3>
             <div className="text-4xl font-bold text-white mb-2">94%</div>
-            <div className="w-full h-1 bg-neutral-800 rounded-full overflow-hidden"><div className="w-[94%] h-full bg-emerald-500" /></div>
+            <div className="w-full h-1.5 bg-neutral-800 rounded-full overflow-hidden">
+              <div className="w-[94%] h-full bg-emerald-500" />
+            </div>
           </div>
 
-          <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-5 shadow-xl space-y-4">
+          <div className="flex-1 bg-neutral-900 border border-neutral-800 rounded-xl p-5 shadow-xl space-y-5">
             <div className="flex justify-between items-start">
               <div className="flex flex-col">
                 <h3 className="text-sm font-bold text-white flex items-center gap-2">
                   {accessToken ? <Cloud className="text-emerald-500" size={16} /> : <CloudOff className="text-neutral-600" size={16} />} System Sync
                 </h3>
-                {userInfo && <p className="text-[10px] text-neutral-500 font-mono mt-1">{userInfo.email}</p>}
+                {userInfo && <p className="text-[10px] text-neutral-300 font-mono mt-1 font-bold uppercase tracking-tight">{userInfo.name}</p>}
               </div>
-              {accessToken ? <button onClick={handleLogout} className="text-[10px] font-bold text-rose-500 uppercase">Logout</button> : <button onClick={loginWithGoogle} className="text-[10px] font-bold text-emerald-500 uppercase">Link</button>}
+              {accessToken ? (
+                <button 
+                  onClick={handleLogout} 
+                  className="px-3 py-1 bg-rose-500/10 border border-rose-500/30 text-rose-500 text-[9px] font-bold rounded-lg hover:bg-rose-500/20 transition-all uppercase"
+                >
+                  Logout
+                </button>
+              ) : (
+                <button 
+                  onClick={loginWithGoogle} 
+                  className="px-4 py-1.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 text-[10px] font-bold rounded-lg hover:bg-emerald-500/20 transition-all uppercase flex items-center gap-2"
+                >
+                  <Link size={12} />
+                  Link Account
+                </button>
+              )}
             </div>
 
             {authError && <div className="p-2 bg-rose-500/10 border border-rose-500/20 text-rose-500 text-[9px] rounded font-mono uppercase">{authError}</div>}
 
             <div className="space-y-2">
               <label className="text-[9px] font-mono text-neutral-600 uppercase tracking-widest block">Manifest Trace</label>
-              <div className="bg-black/40 border border-neutral-800 rounded-lg p-2 text-[10px] font-mono text-neutral-500 flex items-center gap-2">
+              <div className="bg-black/40 border border-neutral-800 rounded-lg p-3 text-[10px] font-mono text-neutral-500 flex items-center gap-2">
                 <RefreshCw size={12} className={externalSyncStatus !== 'idle' ? 'animate-spin text-emerald-500' : ''} />
-                {customSyncName}
+                <span className="truncate">{customSyncName}</span>
               </div>
             </div>
 
-            <div className="flex flex-col gap-3">
-              <div className="flex items-center gap-2">
-                <button onClick={onManualSync} disabled={!accessToken} className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-30 text-white rounded-lg font-bold text-[10px] flex items-center justify-center gap-2 transition-all">
-                  <UploadCloud size={14} /> Sync Now
-                </button>
-                <button onClick={() => toggleSyncMode('sync')} disabled={!accessToken} className={`px-2 py-2 rounded-lg border transition-all flex items-center gap-1 ${syncMode === 'sync' ? 'bg-emerald-500/10 border-emerald-500 text-emerald-500' : 'bg-neutral-800 border-neutral-700 text-neutral-500'}`}>
-                  {syncMode === 'sync' ? <ToggleRight size={18} /> : <ToggleLeft size={18} />} <span className="text-[9px] font-bold">AUTO</span>
-                </button>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button onClick={loadLatestSync} disabled={!accessToken} className="flex-1 py-2 bg-neutral-800 hover:bg-neutral-700 disabled:opacity-30 text-white rounded-lg font-bold text-[10px] flex items-center justify-center gap-2 transition-all">
-                  <DownloadCloud size={14} /> Import Last
-                </button>
-                <button onClick={() => toggleSyncMode('load')} disabled={!accessToken} className={`px-2 py-2 rounded-lg border transition-all flex items-center gap-1 ${syncMode === 'load' ? 'bg-amber-500/10 border-amber-500 text-amber-500' : 'bg-neutral-800 border-neutral-700 text-neutral-500'}`}>
-                  {syncMode === 'load' ? <ToggleRight size={18} /> : <ToggleLeft size={18} />} <span className="text-[9px] font-bold">AUTO</span>
-                </button>
-              </div>
+            <div className="grid grid-cols-2 gap-3">
+              <button onClick={onManualSync} disabled={!accessToken} className="py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-30 text-white rounded-lg font-bold text-[10px] flex items-center justify-center gap-2 transition-all uppercase tracking-tight">
+                <UploadCloud size={14} /> Sync
+              </button>
+              <button onClick={loadLatestSync} disabled={!accessToken} className="py-2.5 bg-neutral-800 hover:bg-neutral-700 disabled:opacity-30 text-white rounded-lg font-bold text-[10px] flex items-center justify-center gap-2 transition-all uppercase tracking-tight">
+                <DownloadCloud size={14} /> Import
+              </button>
             </div>
 
             <div className="p-3 bg-neutral-950 rounded-lg border border-neutral-800">
-               <div className="flex items-center gap-2 mb-1">
+               <div className="flex items-center gap-2 mb-1.5">
                  <Zap size={10} className="text-violet-400" />
-                 <span className="text-[9px] font-mono font-bold text-violet-400 uppercase">Configuration Protocol</span>
+                 <span className="text-[9px] font-mono font-bold text-violet-400 uppercase tracking-widest">Auto-Pulse Active</span>
                </div>
-               <p className="text-[9px] text-neutral-500 leading-tight">
-                 {syncMode === 'sync' ? 'AUTO-SYNC: Commits local state to cloud after every change (mandatory safety pull first).' : syncMode === 'load' ? 'AUTO-LOAD: Pulls cloud state on system initialization.' : 'MANUAL: Cloud interactions restricted to user triggers.'}
+               <p className="text-[9px] text-neutral-500 leading-relaxed font-mono uppercase">
+                 Sync status: <span className="text-emerald-500">NOMINAL</span>. Automatic parity active for all blueprints and identity logs.
                </p>
             </div>
           </div>

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { IdentityState, WorkoutEntry, IDENTITY_METADATA, WorkoutPlan } from './types.ts';
 import WeeklyGrid from './components/WeeklyGrid.tsx';
@@ -33,7 +34,7 @@ import { format, addWeeks, addDays, isSameDay } from 'date-fns';
 const STORAGE_KEY = 'axiom_os_data_v1';
 const PLANS_STORAGE_KEY = 'axiom_os_plans_v1';
 const VIEW_STORAGE_KEY = 'axiom_os_view_v1';
-const SYNC_MODE_KEY = 'axiom_sync_mode_v1';
+const LAST_SYNC_TS_KEY = 'axiom_last_sync_ts';
 
 const AxiomLogo = ({ className = "w-8 h-8" }: { className?: string }) => (
   <svg 
@@ -72,7 +73,6 @@ const startOfWeek = (date: Date | number, options?: { weekStartsOn?: number }) =
   return d;
 };
 
-export type SyncMode = 'sync' | 'load' | 'off';
 type ViewType = 'current' | 'history' | 'discovery' | 'plans';
 
 const App: React.FC = () => {
@@ -94,23 +94,20 @@ const App: React.FC = () => {
   const [isNavVisible, setIsNavVisible] = useState(true);
   const lastScrollY = useRef(0);
   const exitTimerRef = useRef<number | null>(null);
-  const [touchStartX, setTouchStartX] = useState<number | null>(null);
+  
+  const touchStartX = useRef<number | null>(null);
+  const touchEndX = useRef<number | null>(null);
 
-  // Sync Configuration
-  const [syncMode, setSyncMode] = useState<SyncMode>(() => (localStorage.getItem(SYNC_MODE_KEY) as SyncMode) || 'off');
   const [hasImported, setHasImported] = useState(false);
   const [accessToken, setAccessToken] = useState<string | null>(() => localStorage.getItem('axiom_sync_token'));
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'loading' | 'success' | 'error'>('idle');
   
   const isInitialMount = useRef(true);
   const syncTimeoutRef = useRef<number | null>(null);
+  const lastKnownSyncTs = useRef<number>(Number(localStorage.getItem(LAST_SYNC_TS_KEY) || 0));
 
   const performSync = useCallback(async (token: string, currentEntries: WorkoutEntry[], currentPlans: WorkoutPlan[]) => {
-    // Safety check: Never auto-sync unless we have successfully pulled the latest cloud state first to avoid data corruption.
-    if (!hasImported) {
-      console.warn("Sync blocked: System initialization (initial import) required first.");
-      return;
-    }
+    if (!hasImported) return;
 
     setSyncStatus('syncing');
     try {
@@ -131,25 +128,9 @@ const App: React.FC = () => {
         folderId = createData.id;
       }
 
-      const q_files = encodeURIComponent(`'${folderId}' in parents and name contains "sync." and trashed = false`);
-      const listFilesResponse = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q_files}&orderBy=createdTime desc&fields=files(id, name, createdTime)`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const filesData = await listFilesResponse.json();
-      const existingSyncs = filesData.files || [];
-
-      if (existingSyncs.length >= 5) {
-        const toDelete = existingSyncs.slice(4);
-        for (const file of toDelete) {
-          await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}`, {
-            method: 'DELETE',
-            headers: { Authorization: `Bearer ${token}` },
-          });
-        }
-      }
-
-      const syncName = `sync.${format(new Date(), 'ss.mm.HH.dd.MM.yyyy')}.json`;
-      const manifest = { version: '1.7', timestamp: Date.now(), data: { entries: currentEntries, plans: currentPlans } };
+      const ts = Date.now();
+      const syncName = `sync.${format(new Date(ts), 'ss.mm.HH.dd.MM.yyyy')}.json`;
+      const manifest = { version: '1.7', timestamp: ts, data: { entries: currentEntries, plans: currentPlans } };
       const metadata = { name: syncName, mimeType: 'application/json', parents: [folderId] };
 
       const form = new FormData();
@@ -164,6 +145,29 @@ const App: React.FC = () => {
 
       if (response.ok) {
         setSyncStatus('success');
+        lastKnownSyncTs.current = ts;
+        localStorage.setItem(LAST_SYNC_TS_KEY, ts.toString());
+
+        // Cleanup: Limit to 20 latest sync files
+        try {
+          const q_cleanup = encodeURIComponent(`'${folderId}' in parents and name contains "sync." and trashed = false`);
+          const listFilesResponse = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q_cleanup}&orderBy=createdTime desc&fields=files(id, name, createdTime)`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const cleanupData = await listFilesResponse.json();
+          if (cleanupData.files && cleanupData.files.length > 20) {
+            const filesToDelete = cleanupData.files.slice(20);
+            for (const file of filesToDelete) {
+              await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}`, {
+                method: 'DELETE',
+                headers: { Authorization: `Bearer ${token}` },
+              });
+            }
+          }
+        } catch (cleanupErr) {
+          console.warn("Axiom Sync: Cleanup of old versions failed", cleanupErr);
+        }
+
         setTimeout(() => setSyncStatus('idle'), 2000);
       } else {
         if (response.status === 401) {
@@ -188,28 +192,38 @@ const App: React.FC = () => {
       const folderId = folderData.files?.[0]?.id;
       if (!folderId) {
         setSyncStatus('idle');
-        setHasImported(true); // Treat as imported even if cloud is fresh
+        setHasImported(true);
         return;
       }
 
       const q_files = encodeURIComponent(`'${folderId}' in parents and name contains "sync." and trashed = false`);
-      const listFilesResponse = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q_files}&orderBy=createdTime desc&pageSize=1&fields=files(id, name)`, {
+      const listFilesResponse = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q_files}&orderBy=createdTime desc&pageSize=1&fields=files(id, name, createdTime)`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const filesData = await listFilesResponse.json();
       const latestFile = filesData.files?.[0];
 
       if (latestFile) {
-        const fileResponse = await fetch(`https://www.googleapis.com/drive/v3/files/${latestFile.id}?alt=media`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const manifest = await fileResponse.json();
-        if (manifest.data) {
-          if (manifest.data.entries) setEntries(manifest.data.entries);
-          if (manifest.data.plans) setPlans(manifest.data.plans);
-          setSyncStatus('success');
+        const driveTs = new Date(latestFile.createdTime).getTime();
+        
+        // Auto-import only if new sync file is found (higher timestamp than local)
+        if (driveTs > lastKnownSyncTs.current) {
+          const fileResponse = await fetch(`https://www.googleapis.com/drive/v3/files/${latestFile.id}?alt=media`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const manifest = await fileResponse.json();
+          if (manifest.data) {
+            if (manifest.data.entries) setEntries(manifest.data.entries);
+            if (manifest.data.plans) setPlans(manifest.data.plans);
+            lastKnownSyncTs.current = manifest.timestamp || driveTs;
+            localStorage.setItem(LAST_SYNC_TS_KEY, lastKnownSyncTs.current.toString());
+            setSyncStatus('success');
+            setHasImported(true);
+            setTimeout(() => setSyncStatus('idle'), 2000);
+          }
+        } else {
+          setSyncStatus('idle');
           setHasImported(true);
-          setTimeout(() => setSyncStatus('idle'), 2000);
         }
       } else {
         setSyncStatus('idle');
@@ -220,10 +234,6 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // Mode Persistence
-  useEffect(() => { localStorage.setItem(SYNC_MODE_KEY, syncMode); }, [syncMode]);
-
-  // Initial Data Load & Safety Gate
   useEffect(() => {
     const savedEntries = localStorage.getItem(STORAGE_KEY);
     const savedPlans = localStorage.getItem(PLANS_STORAGE_KEY);
@@ -231,42 +241,34 @@ const App: React.FC = () => {
     if (savedPlans) try { setPlans(JSON.parse(savedPlans)); } catch (e) {}
 
     if (accessToken) {
-      // MANDATORY: If any auto mode is enabled, we must import first.
-      if (syncMode === 'sync' || syncMode === 'load') {
-        loadLatestSync(accessToken);
-      }
+      loadLatestSync(accessToken);
     } else {
-      // Every refresh: Show warning if sync is disabled
       setSyncNotice(true);
-      const timer = setTimeout(() => setSyncNotice(false), 8000);
+      const timer = setTimeout(() => setSyncNotice(false), 10000);
       return () => clearTimeout(timer);
     }
   }, [accessToken, loadLatestSync]);
 
-  // Auto-Sync Trigger
   useEffect(() => {
     if (isInitialMount.current) {
       isInitialMount.current = false;
       return;
     }
-    
-    // Only auto-sync if mode is 'sync' AND we've passed the safety import gate
-    if (accessToken && syncMode === 'sync' && hasImported) {
+    // Auto-sync trigger on entry or plan change
+    if (accessToken && hasImported) {
       if (syncTimeoutRef.current) window.clearTimeout(syncTimeoutRef.current);
       syncTimeoutRef.current = window.setTimeout(() => {
         performSync(accessToken, entries, plans);
       }, 3000) as unknown as number;
     }
-
     return () => {
       if (syncTimeoutRef.current) window.clearTimeout(syncTimeoutRef.current);
     };
-  }, [entries, plans, accessToken, performSync, syncMode, hasImported]);
+  }, [entries, plans, accessToken, performSync, hasImported]);
 
   useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(entries)); }, [entries]);
   useEffect(() => { localStorage.setItem(PLANS_STORAGE_KEY, JSON.stringify(plans)); }, [plans]);
 
-  // Routing Handlers
   useEffect(() => {
     if (!window.history.state) window.history.replaceState({ view, isSubPage: false }, '');
     const handlePopState = (event: PopStateEvent) => {
@@ -327,6 +329,30 @@ const App: React.FC = () => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.targetTouches[0].clientX;
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    touchEndX.current = e.targetTouches[0].clientX;
+  };
+
+  const handleTouchEnd = () => {
+    if (!touchStartX.current || !touchEndX.current) return;
+    const distance = touchStartX.current - touchEndX.current;
+    const isLeftSwipe = distance > 50;
+    const isRightSwipe = distance < -50;
+
+    if (isLeftSwipe) {
+      setDashboardWeekOffset(prev => prev + 1);
+    } else if (isRightSwipe) {
+      setDashboardWeekOffset(prev => prev - 1);
+    }
+
+    touchStartX.current = null;
+    touchEndX.current = null;
+  };
+
   const addOrUpdateEntry = (entryData: Omit<WorkoutEntry, 'id'>, id?: string) => {
     if (id) setEntries(prev => prev.map(e => e.id === id ? { ...entryData, id } : e));
     else setEntries(prev => [...prev, { ...entryData, id: crypto.randomUUID() }]);
@@ -363,6 +389,7 @@ const App: React.FC = () => {
 
   const dashboardWeekStart = startOfWeek(addWeeks(new Date(), dashboardWeekOffset), { weekStartsOn: 0 });
   const todayEntry = entries.find(e => isSameDay(new Date(e.timestamp), new Date()));
+  // Fix: Declare todayHasEntry with 'const' to fix scope errors.
   const todayHasEntry = !!todayEntry;
 
   const NavItems = () => (
@@ -412,19 +439,37 @@ const App: React.FC = () => {
           <div className="flex items-center gap-3">
             <AxiomLogo className="w-8 h-8" />
             <div className="flex flex-col">
-              <h1 className="text-lg font-mono font-bold tracking-tight uppercase leading-none text-white">Axiom v1.7</h1>
+              <h1 className="text-lg font-mono font-bold tracking-tight uppercase leading-none text-white">Axiom v1.8</h1>
               <span className="text-[9px] text-neutral-500 font-mono uppercase tracking-tighter">Personal Intelligence OS</span>
             </div>
           </div>
           <nav className="hidden sm:flex items-center gap-2 bg-neutral-900/50 p-1.5 rounded-xl border border-neutral-800"><NavItems /></nav>
-          <StatusIndicator />
+          
+          <div className="flex items-center gap-2">
+            {dashboardWeekOffset !== 0 ? (
+              <button 
+                onClick={() => setDashboardWeekOffset(0)}
+                className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500 text-black rounded-lg font-mono text-[9px] font-bold uppercase tracking-tight shadow-lg animate-in fade-in zoom-in-95"
+              >
+                <RotateCcw size={12} />
+                <span>Return to Current</span>
+              </button>
+            ) : (
+              <StatusIndicator />
+            )}
+          </div>
         </div>
       </header>
       <main className="flex-1 max-w-7xl mx-auto w-full p-4 md:p-6 space-y-8 bg-[#121212]">
         {view === 'current' && (
           <div className="space-y-6 animate-in fade-in duration-300">
-            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-stretch">
-              <div className="lg:col-span-3 h-full">
+            <div 
+              className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-stretch"
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
+            >
+              <div className="lg:col-span-3 h-full relative">
                 <WeeklyGrid isCompact={true} entries={entries} plans={plans} onEntryClick={handleEditEntry} onCellClick={handleCellClick} weekStart={dashboardWeekStart} />
               </div>
               <div className="hidden lg:block h-full">
@@ -462,6 +507,7 @@ const App: React.FC = () => {
                     <li className="flex gap-2"><Zap size={14} className="text-violet-500 shrink-0" /><span>Streaks are sustained by any logged activity except Survival states.</span></li>
                   </ul>
                 </div>
+                {/* Fix: Using todayHasEntry which is now defined. */}
                 <button onClick={() => todayHasEntry ? handleEditEntry(todayEntry!.id) : setIsLogModalOpen(true)} className="mt-6 w-full py-3 bg-neutral-100 hover:bg-white text-black font-bold rounded-lg transition-colors flex items-center justify-center gap-2">
                   {todayHasEntry ? <Edit3 size={20} /> : <Plus size={20} />}
                   <span>{todayHasEntry ? 'Modify Identity' : 'Log Session'}</span>
@@ -480,11 +526,6 @@ const App: React.FC = () => {
             onUpdatePlans={setPlans} 
             externalSyncStatus={syncStatus}
             onManualSync={() => accessToken && performSync(accessToken, entries, plans)}
-            syncMode={syncMode}
-            onSetSyncMode={(m) => {
-              setSyncMode(m);
-              if (m !== 'off') setHasImported(false); // Force fresh import gate on mode switch
-            }}
           />
         )}
       </main>
@@ -508,9 +549,15 @@ const App: React.FC = () => {
         </div>
       )}
       {syncNotice && (
-        <div className="fixed bottom-24 sm:bottom-8 left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-bottom-4 fade-in duration-300">
-          <button onClick={() => { setSyncNotice(false); changeView('discovery'); }} className="bg-amber-500 text-black px-6 py-3 rounded-full font-mono text-[10px] font-bold uppercase tracking-[0.1em] shadow-2xl flex items-center gap-3 border border-white/20 hover:bg-amber-400 transition-colors">
-            <CloudOff size={14} /> Cloud Sync Disabled: Data is Local Only <div className="px-1.5 py-0.5 bg-black/20 rounded text-[8px]">Link Now</div>
+        <div className="fixed bottom-24 sm:bottom-8 left-0 right-0 px-4 sm:left-1/2 sm:-translate-x-1/2 z-[100] animate-in slide-in-from-bottom-4 fade-in duration-300">
+          <button 
+            onClick={() => { setSyncNotice(false); changeView('discovery'); }} 
+            className="w-full sm:w-auto bg-amber-500 text-black px-4 sm:px-6 py-2.5 sm:py-3 rounded-full font-mono text-[9px] sm:text-[10px] font-bold uppercase tracking-tight sm:tracking-[0.1em] shadow-2xl flex items-center justify-center gap-2 sm:gap-3 border border-white/20 hover:bg-amber-400 transition-colors"
+          >
+            <CloudOff size={14} className="shrink-0" />
+            <span className="sm:hidden">Sync Disabled: Link Now</span>
+            <span className="hidden sm:inline">Cloud Sync Disabled: Data is Local Only</span>
+            <div className="hidden sm:block px-1.5 py-0.5 bg-black/20 rounded text-[8px]">Link Now</div>
           </button>
         </div>
       )}
@@ -528,7 +575,7 @@ const App: React.FC = () => {
         </div>
         <div className="flex gap-4">
           <span className={syncStatus !== 'idle' ? 'animate-pulse text-emerald-500' : ''}> {syncStatus !== 'idle' ? 'SYNC_ACTIVE' : 'IDENTITY_STABLE: OK'} </span>
-          <span>SYSTEM_VERSION: ALPHA_v1.7</span>
+          <span>SYSTEM_VERSION: ALPHA_v1.8</span>
         </div>
       </footer>
     </div>

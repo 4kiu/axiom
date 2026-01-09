@@ -66,7 +66,7 @@ const WeeklyGrid: React.FC<WeeklyGridProps> = ({
     return entries.some(e => isSameDay(startOfDay(new Date(e.timestamp)), startOfDay(day)));
   };
 
-  // Fix: Use React.FC to ensure standard React props like 'key' are recognized correctly by the TypeScript compiler
+  // EntryCard handles the visual representation of a single log
   const EntryCard: React.FC<{ entry: WorkoutEntry }> = ({ entry }) => {
     const meta = IDENTITY_METADATA[entry.identity];
     const isOverdrive = entry.identity === IdentityState.OVERDRIVE;
@@ -85,7 +85,7 @@ const WeeklyGrid: React.FC<WeeklyGridProps> = ({
           animationDelay: delayValue,
           willChange: isOverdrive ? 'transform, box-shadow, background-color' : 'auto'
         }}
-        className={`group/entry relative p-2 rounded-lg border transition-all h-full flex flex-col items-center justify-center
+        className={`group/entry relative p-1.5 sm:p-2 rounded-lg border transition-all h-full flex flex-col items-center justify-center
           ${meta.color} ${meta.borderColor} ${meta.textColor}
           ${animationClass}
           hover:brightness-125 active:scale-[0.98] shadow-md min-h-[58px] sm:min-h-[85px]
@@ -93,24 +93,24 @@ const WeeklyGrid: React.FC<WeeklyGridProps> = ({
       >
         <div className="relative z-10 flex flex-col items-center justify-center w-full text-center">
           <div className="flex items-center justify-center gap-1 mb-1">
-              <span className="text-[9px] sm:text-[11px] font-mono font-bold tracking-tight opacity-90">
+              <span className="text-[8px] sm:text-[11px] font-mono font-bold tracking-tight opacity-90">
                 {format(new Date(entry.timestamp), 'HH:mm')}
               </span>
           </div>
           
-          <div className="flex flex-col items-center w-full">
-            <div className={`text-[10px] sm:text-[14px] font-black uppercase leading-none tracking-tight ${isCompact ? 'hidden sm:block' : 'block'}`}>
+          <div className="flex flex-col items-center w-full overflow-hidden">
+            <div className={`text-[9px] sm:text-[14px] font-black uppercase leading-none tracking-tight ${isCompact ? 'hidden sm:block' : 'block'}`}>
                 {meta.label}
             </div>
             
             {plan && (
-              <div className={`text-[9px] sm:text-[11px] font-mono text-white/70 truncate w-[92%] mt-1 leading-tight border-t border-white/20 pt-1`}>
+              <div className={`text-[8px] sm:text-[11px] font-mono text-white/70 truncate w-full px-0.5 mt-1 leading-tight border-t border-white/20 pt-1`}>
                   {plan.name}
               </div>
             )}
           </div>
 
-          <div className="flex gap-1 sm:gap-1.5 justify-center mt-1.5 sm:mt-2.5">
+          <div className="flex gap-0.5 sm:gap-1.5 justify-center mt-1.5 sm:mt-2.5">
             {[...Array(5)].map((_, i) => (
               <div 
                 key={i} 
