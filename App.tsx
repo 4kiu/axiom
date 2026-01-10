@@ -287,6 +287,18 @@ const App: React.FC = () => {
     if (!window.history.state) window.history.replaceState({ view, isSubPage: false, isLogOpen: false }, '');
     const handlePopState = (event: PopStateEvent) => {
       const state = event.state;
+
+      // Intercept back gesture if there are unsaved exercise changes
+      if (isDirty && isPlanEditing) {
+        const isLeavingEditor = !state || state.view !== 'plans' || !state.isSubPage;
+        if (isLeavingEditor) {
+          // Push current state back to keep user in editor and show confirmation alert
+          window.history.pushState({ view, isSubPage: true, isLogOpen: isLogModalOpen }, '');
+          setPendingView(state?.view || 'current');
+          return;
+        }
+      }
+
       if (state) {
         setView(state.view);
         setIsPlanEditing(state.isSubPage || false);
@@ -307,7 +319,7 @@ const App: React.FC = () => {
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, [view, isPlanEditing, isLogModalOpen]);
+  }, [view, isPlanEditing, isLogModalOpen, isDirty]);
 
   const handleExitSequence = () => {
     if (exitWarning) window.history.back();
