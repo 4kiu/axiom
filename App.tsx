@@ -105,7 +105,9 @@ const App: React.FC = () => {
   const touchEndX = useRef<number | null>(null);
 
   const pageTouchStartX = useRef<number | null>(null);
+  const pageTouchStartY = useRef<number | null>(null);
   const pageTouchEndX = useRef<number | null>(null);
+  const isSwipePrevented = useRef<boolean>(false);
 
   const [hasImported, setHasImported] = useState(false);
   const [accessToken, setAccessToken] = useState<string | null>(() => localStorage.getItem('axiom_sync_token'));
@@ -389,17 +391,40 @@ const App: React.FC = () => {
   const handlePageTouchStart = (e: React.TouchEvent) => {
     if (isPlanEditing || isLogModalOpen) return;
     pageTouchStartX.current = e.targetTouches[0].clientX;
+    pageTouchStartY.current = e.targetTouches[0].clientY;
+    isSwipePrevented.current = false;
   };
 
   const handlePageTouchMove = (e: React.TouchEvent) => {
-    if (isPlanEditing || isLogModalOpen) return;
-    pageTouchEndX.current = e.targetTouches[0].clientX;
+    if (isPlanEditing || isLogModalOpen || isSwipePrevented.current) return;
+    
+    const currentX = e.targetTouches[0].clientX;
+    const currentY = e.targetTouches[0].clientY;
+    
+    const dx = Math.abs(currentX - (pageTouchStartX.current || currentX));
+    const dy = Math.abs(currentY - (pageTouchStartY.current || currentY));
+    
+    // If vertical movement is larger than horizontal, or there is significant vertical movement
+    // mark the swipe as prevented until the touch is released.
+    if (dy > dx || dy > 10) {
+      isSwipePrevented.current = true;
+      return;
+    }
+    
+    pageTouchEndX.current = currentX;
   };
 
   const handlePageTouchEnd = () => {
-    if (!pageTouchStartX.current || !pageTouchEndX.current) return;
+    if (!pageTouchStartX.current || !pageTouchEndX.current || isSwipePrevented.current) {
+      pageTouchStartX.current = null;
+      pageTouchStartY.current = null;
+      pageTouchEndX.current = null;
+      isSwipePrevented.current = false;
+      return;
+    }
+    
     const distance = pageTouchStartX.current - pageTouchEndX.current;
-    const threshold = 10; // Reduced for higher sensitivity
+    const threshold = 15; // Reduced for higher sensitivity
 
     if (Math.abs(distance) > threshold) {
       const currentIndex = VIEW_ORDER.indexOf(view);
@@ -411,7 +436,9 @@ const App: React.FC = () => {
     }
 
     pageTouchStartX.current = null;
+    pageTouchStartY.current = null;
     pageTouchEndX.current = null;
+    isSwipePrevented.current = false;
   };
 
   const addOrUpdateEntry = (entryData: Omit<WorkoutEntry, 'id'>, id?: string) => {
