@@ -189,11 +189,14 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
   }, [externalIsEditing, externalEditingPlanId, plans]);
 
   // Derive local dirty state for UI feedback (Save vs Saved)
-  const isDirty = (isCreating || editingPlanId) && initialPlanRef.current !== null && JSON.stringify(tempPlan) !== initialPlanRef.current;
+  // Ensured boolean type via explicit comparison to prevent TS mapping errors
+  const isDirty = (isCreating || editingPlanId !== null) && 
+                  initialPlanRef.current !== null && 
+                  JSON.stringify(tempPlan) !== initialPlanRef.current;
 
   // Track dirty state for parent
   useEffect(() => {
-    onDirtyChange?.(isDirty);
+    onDirtyChange?.(Boolean(isDirty));
   }, [isDirty, onDirtyChange]);
 
   const startNewPlan = () => {
