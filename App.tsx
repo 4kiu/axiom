@@ -8,6 +8,7 @@ import PointsCard from './components/PointsCard.tsx';
 import History from './components/History.tsx';
 import DiscoveryPanel from './components/DiscoveryPanel.tsx';
 import PlanBuilder from './components/PlanBuilder.tsx';
+import ConfirmationModal from './components/ConfirmationModal.tsx';
 import { 
   LayoutDashboard, 
   History as HistoryIcon, 
@@ -27,7 +28,8 @@ import {
   CloudOff,
   RefreshCw,
   AlertTriangle,
-  CheckCircle2
+  CheckCircle2,
+  ArrowUp
 } from 'lucide-react';
 import { format, addWeeks, addDays, isSameDay } from 'date-fns';
 
@@ -35,6 +37,8 @@ const STORAGE_KEY = 'axiom_os_data_v1';
 const PLANS_STORAGE_KEY = 'axiom_os_plans_v1';
 const VIEW_STORAGE_KEY = 'axiom_os_view_v1';
 const LAST_SYNC_TS_KEY = 'axiom_last_sync_ts';
+
+const VIEW_ORDER: ViewType[] = ['current', 'plans', 'history', 'discovery'];
 
 const AxiomLogo = ({ className = "w-8 h-8" }: { className?: string }) => (
   <svg 
@@ -90,6 +94,9 @@ const App: React.FC = () => {
   const [preselectedLogData, setPreselectedLogData] = useState<{ date?: Date, identity?: IdentityState, editingEntry?: WorkoutEntry, initialPlanId?: string } | null>(null);
   const [exitWarning, setExitWarning] = useState(false);
   const [syncNotice, setSyncNotice] = useState(false);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const [swipeDirection, setSwipeDirection] = useState<'left' | 'right' | null>(null);
+  const [deleteConfirmationId, setDeleteConfirmationId] = useState<string | null>(null);
   
   const [isNavVisible, setIsNavVisible] = useState(true);
   const lastScrollY = useRef(0);
@@ -98,6 +105,9 @@ const App: React.FC = () => {
   const touchStartX = useRef<number | null>(null);
   const touchEndX = useRef<number | null>(null);
 
+  const pageTouchStartX = useRef<number | null>(null);
+  const pageTouchEndX = useRef<number | null>(null);
+
   const [hasImported, setHasImported] = useState(false);
   const [accessToken, setAccessToken] = useState<string | null>(() => localStorage.getItem('axiom_sync_token'));
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'loading' | 'success' | 'error'>('idle');
@@ -105,6 +115,9 @@ const App: React.FC = () => {
   const isInitialMount = useRef(true);
   const syncTimeoutRef = useRef<number | null>(null);
   const lastKnownSyncTs = useRef<number>(Number(localStorage.getItem(LAST_SYNC_TS_KEY) || 0));
+
+  const [isDirty, setIsDirty] = useState(false);
+  const [pendingView, setPendingView] = useState<ViewType | null>(null);
 
   const performSync = useCallback(async (token: string, currentEntries: WorkoutEntry[], currentPlans: WorkoutPlan[]) => {
     if (!hasImported) return;
@@ -301,8 +314,18 @@ const App: React.FC = () => {
     }
   };
 
-  const changeView = (newView: ViewType) => {
+  const changeView = (newView: ViewType, force = false) => {
     if (newView === view && !isPlanEditing) return;
+
+    if (!force && isDirty && newView !== view) {
+      setPendingView(newView);
+      return;
+    }
+    
+    const currentIndex = VIEW_ORDER.indexOf(view);
+    const newIndex = VIEW_ORDER.indexOf(newView);
+    setSwipeDirection(newIndex > currentIndex ? 'right' : 'left');
+
     setView(newView);
     setIsPlanEditing(false);
     setEditingPlanId(null);
@@ -323,12 +346,17 @@ const App: React.FC = () => {
       const currentScrollY = window.scrollY;
       if (currentScrollY > lastScrollY.current && currentScrollY > 50) setIsNavVisible(false);
       else setIsNavVisible(true);
+      
+      if (currentScrollY > 300) setShowScrollTop(true);
+      else setShowScrollTop(false);
+      
       lastScrollY.current = currentScrollY;
     };
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
+  // Grid level swipe handlers (Week switching)
   const handleTouchStart = (e: React.TouchEvent) => {
     touchStartX.current = e.targetTouches[0].clientX;
   };
@@ -337,20 +365,47 @@ const App: React.FC = () => {
     touchEndX.current = e.targetTouches[0].clientX;
   };
 
-  const handleTouchEnd = () => {
+  const handleTouchEnd = (e: React.TouchEvent) => {
     if (!touchStartX.current || !touchEndX.current) return;
     const distance = touchStartX.current - touchEndX.current;
-    const isLeftSwipe = distance > 50;
-    const isRightSwipe = distance < -50;
-
-    if (isLeftSwipe) {
-      setDashboardWeekOffset(prev => prev + 1);
-    } else if (isRightSwipe) {
-      setDashboardWeekOffset(prev => prev - 1);
+    
+    if (Math.abs(distance) > 50) {
+      e.stopPropagation(); // Priority: Stop bubbling so page swipe doesn't trigger
+      if (distance > 50) setDashboardWeekOffset(prev => prev + 1);
+      else if (distance < -50) setDashboardWeekOffset(prev => prev - 1);
     }
 
     touchStartX.current = null;
     touchEndX.current = null;
+  };
+
+  // Page level swipe handlers (View switching)
+  const handlePageTouchStart = (e: React.TouchEvent) => {
+    if (isPlanEditing || isLogModalOpen) return;
+    pageTouchStartX.current = e.targetTouches[0].clientX;
+  };
+
+  const handlePageTouchMove = (e: React.TouchEvent) => {
+    if (isPlanEditing || isLogModalOpen) return;
+    pageTouchEndX.current = e.targetTouches[0].clientX;
+  };
+
+  const handlePageTouchEnd = () => {
+    if (!pageTouchStartX.current || !pageTouchEndX.current) return;
+    const distance = pageTouchStartX.current - pageTouchEndX.current;
+    const threshold = 100; // Require more intentional movement for page switching
+
+    if (Math.abs(distance) > threshold) {
+      const currentIndex = VIEW_ORDER.indexOf(view);
+      if (distance > threshold && currentIndex < VIEW_ORDER.length - 1) {
+        changeView(VIEW_ORDER[currentIndex + 1]);
+      } else if (distance < -threshold && currentIndex > 0) {
+        changeView(VIEW_ORDER[currentIndex - 1]);
+      }
+    }
+
+    pageTouchStartX.current = null;
+    pageTouchEndX.current = null;
   };
 
   const addOrUpdateEntry = (entryData: Omit<WorkoutEntry, 'id'>, id?: string) => {
@@ -361,7 +416,14 @@ const App: React.FC = () => {
   };
 
   const deleteEntry = (id: string) => {
-    if (window.confirm('Confirm Deletion?')) setEntries(prev => prev.filter(e => e.id !== id));
+    setDeleteConfirmationId(id);
+  };
+
+  const confirmDeleteEntry = () => {
+    if (deleteConfirmationId) {
+      setEntries(prev => prev.filter(e => e.id !== deleteConfirmationId));
+      setDeleteConfirmationId(null);
+    }
   };
 
   const handleLogPlan = (planId: string) => {
@@ -389,7 +451,6 @@ const App: React.FC = () => {
 
   const dashboardWeekStart = startOfWeek(addWeeks(new Date(), dashboardWeekOffset), { weekStartsOn: 0 });
   const todayEntry = entries.find(e => isSameDay(new Date(e.timestamp), new Date()));
-  // Fix: Declare todayHasEntry with 'const' to fix scope errors.
   const todayHasEntry = !!todayEntry;
 
   const NavItems = () => (
@@ -433,7 +494,12 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#121212] text-neutral-200 flex flex-col font-sans pb-20 sm:pb-0">
+    <div 
+      className="min-h-screen bg-[#121212] text-neutral-200 flex flex-col font-sans pb-20 sm:pb-0 select-none"
+      onTouchStart={handlePageTouchStart}
+      onTouchMove={handlePageTouchMove}
+      onTouchEnd={handlePageTouchEnd}
+    >
       <header className="border-b border-neutral-800 p-4 sticky top-0 bg-[#121212]/90 backdrop-blur-md z-30">
         <div className="max-w-7xl mx-auto flex flex-row justify-between items-center">
           <div className="flex items-center gap-3">
@@ -448,7 +514,9 @@ const App: React.FC = () => {
           <div className="flex items-center gap-2">
             {dashboardWeekOffset !== 0 ? (
               <button 
-                onClick={() => setDashboardWeekOffset(0)}
+                onClick={() => {
+                  setDashboardWeekOffset(0);
+                }}
                 className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500 text-black rounded-lg font-mono text-[9px] font-bold uppercase tracking-tight shadow-lg animate-in fade-in zoom-in-95"
               >
                 <RotateCcw size={12} />
@@ -460,76 +528,101 @@ const App: React.FC = () => {
           </div>
         </div>
       </header>
-      <main className="flex-1 max-w-7xl mx-auto w-full p-4 md:p-6 space-y-8 bg-[#121212]">
-        {view === 'current' && (
-          <div className="space-y-6 animate-in fade-in duration-300">
-            <div 
-              className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-stretch"
-              onTouchStart={handleTouchStart}
-              onTouchMove={handleTouchMove}
-              onTouchEnd={handleTouchEnd}
-            >
-              <div className="lg:col-span-3 h-full relative">
-                <WeeklyGrid isCompact={true} entries={entries} plans={plans} onEntryClick={handleEditEntry} onCellClick={handleCellClick} weekStart={dashboardWeekStart} />
-              </div>
-              <div className="hidden lg:block h-full">
-                 <div className="bg-[#1a1a1a] border border-neutral-800 rounded-xl p-5 h-full flex flex-col">
-                    <h3 className="text-xs font-mono text-neutral-500 uppercase tracking-widest mb-4">Identity Matrix</h3>
-                    <div className="space-y-4 mb-6">
-                      {Object.entries(IDENTITY_METADATA).map(([key, meta]) => (
-                        <div key={key} className="flex gap-3">
-                          <div className={`w-3 h-3 rounded-full mt-1 shrink-0 ${meta.color}`} />
-                          <div><div className="text-sm font-bold text-neutral-200">{meta.label}</div><div className="text-[10px] text-neutral-500 leading-tight">{meta.description}</div></div>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="mt-auto pt-4 border-t border-neutral-800">
-                      <div className="text-[11px] font-mono text-neutral-400 bg-black/40 px-3 py-2 rounded border border-neutral-800 flex items-center gap-2 mb-6">
-                        <Calendar size={12} className="text-neutral-600" /> {format(dashboardWeekStart, 'MMM dd')} — {format(addDays(dashboardWeekStart, 7), 'MMM dd')}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button onClick={() => setDashboardWeekOffset(prev => prev - 1)} className="flex-1 bg-neutral-950 hover:bg-neutral-800 border border-neutral-800 p-2 rounded flex justify-center text-neutral-400"><ChevronLeft size={16} /></button>
-                        <button onClick={() => setDashboardWeekOffset(0)} className="bg-neutral-950 hover:bg-neutral-800 border border-neutral-800 p-2 rounded flex justify-center text-neutral-400"><RotateCcw size={16} /></button>
-                        <button onClick={() => setDashboardWeekOffset(prev => prev + 1)} className="flex-1 bg-neutral-950 hover:bg-neutral-800 border border-neutral-800 p-2 rounded flex justify-center text-neutral-400"><ChevronRight size={16} /></button>
-                      </div>
-                    </div>
-                 </div>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <StatusPanel entries={entries} onAction={() => setIsLogModalOpen(true)} />
-              <PointsCard entries={entries} weekStart={dashboardWeekStart} />
-              <div className="bg-[#1a1a1a] border border-neutral-800 rounded-xl p-6 flex flex-col justify-between">
-                <div>
-                  <h3 className="text-sm font-mono text-neutral-500 uppercase tracking-widest mb-2">System Rules</h3>
-                  <ul className="text-xs space-y-3 text-neutral-400">
-                    <li className="flex gap-2"><ShieldAlert size={14} className="text-rose-500 shrink-0" /><span>Logging is restricted to 1 entry per day to ensure mapping fidelity.</span></li>
-                    <li className="flex gap-2"><Zap size={14} className="text-violet-500 shrink-0" /><span>Streaks are sustained by any logged activity except Survival states.</span></li>
-                  </ul>
+      <main className="flex-1 max-w-7xl mx-auto w-full p-4 md:p-6 space-y-8 bg-[#121212] page-transition-wrapper">
+        <div key={view} className={swipeDirection === 'right' ? 'page-enter-right' : 'page-enter-left'}>
+          {view === 'current' && (
+            <div className="space-y-6">
+              <div 
+                className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-stretch"
+              >
+                <div 
+                  className="lg:col-span-3 h-full relative"
+                  onTouchStart={handleTouchStart}
+                  onTouchMove={handleTouchMove}
+                  onTouchEnd={handleTouchEnd}
+                >
+                  <WeeklyGrid isCompact={true} entries={entries} plans={plans} onEntryClick={handleEditEntry} onCellClick={handleCellClick} weekStart={dashboardWeekStart} />
                 </div>
-                {/* Fix: Using todayHasEntry which is now defined. */}
-                <button onClick={() => todayHasEntry ? handleEditEntry(todayEntry!.id) : setIsLogModalOpen(true)} className="mt-6 w-full py-3 bg-neutral-100 hover:bg-white text-black font-bold rounded-lg transition-colors flex items-center justify-center gap-2">
-                  {todayHasEntry ? <Edit3 size={20} /> : <Plus size={20} />}
-                  <span>{todayHasEntry ? 'Modify Identity' : 'Log Session'}</span>
-                </button>
+                <div className="hidden lg:block h-full">
+                   <div className="bg-[#1a1a1a] border border-neutral-800 rounded-xl p-5 h-full flex flex-col">
+                      <h3 className="text-xs font-mono text-neutral-500 uppercase tracking-widest mb-4">Identity Matrix</h3>
+                      <div className="space-y-4 mb-6">
+                        {Object.entries(IDENTITY_METADATA).map(([key, meta]) => (
+                          <div key={key} className="flex gap-3">
+                            <div className={`w-3 h-3 rounded-full mt-1 shrink-0 ${meta.color}`} />
+                            <div><div className="text-sm font-bold text-neutral-200">{meta.label}</div><div className="text-[10px] text-neutral-500 leading-tight">{meta.description}</div></div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-auto pt-4 border-t border-neutral-800">
+                        <div className="text-[11px] font-mono text-neutral-400 bg-black/40 px-3 py-2 rounded border border-neutral-800 flex items-center gap-2 mb-6">
+                          <Calendar size={12} className="text-neutral-600" /> {format(dashboardWeekStart, 'MMM dd')} — {format(addDays(dashboardWeekStart, 7), 'MMM dd')}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => setDashboardWeekOffset(prev => prev - 1)} className="flex-1 bg-neutral-950 hover:bg-neutral-800 border border-neutral-800 p-2 rounded flex justify-center text-neutral-400"><ChevronLeft size={16} /></button>
+                          <button onClick={() => setDashboardWeekOffset(0)} className="bg-neutral-950 hover:bg-neutral-800 border border-neutral-800 p-2 rounded flex justify-center text-neutral-400"><RotateCcw size={16} /></button>
+                          <button onClick={() => setDashboardWeekOffset(prev => prev + 1)} className="flex-1 bg-neutral-950 hover:bg-neutral-800 border border-neutral-800 p-2 rounded flex justify-center text-neutral-400"><ChevronRight size={16} /></button>
+                        </div>
+                      </div>
+                   </div>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <StatusPanel entries={entries} onAction={() => setIsLogModalOpen(true)} />
+                <PointsCard entries={entries} weekStart={dashboardWeekStart} />
+                <div className="bg-[#1a1a1a] border border-neutral-800 rounded-xl p-6 flex flex-col justify-between">
+                  <div>
+                    <h3 className="text-sm font-mono text-neutral-500 uppercase tracking-widest mb-2">System Rules</h3>
+                    <ul className="text-xs space-y-3 text-neutral-400">
+                      <li className="flex gap-2"><ShieldAlert size={14} className="text-rose-500 shrink-0" /><span>Logging is restricted to 1 entry per day to ensure mapping fidelity.</span></li>
+                      <li className="flex gap-2"><Zap size={14} className="text-violet-500 shrink-0" /><span>Streaks are sustained by any logged activity except Survival states.</span></li>
+                    </ul>
+                  </div>
+                  <button onClick={() => todayHasEntry ? handleEditEntry(todayEntry!.id) : setIsLogModalOpen(true)} className="mt-6 w-full py-3 bg-neutral-100 hover:bg-white text-black font-bold rounded-lg transition-colors flex items-center justify-center gap-2">
+                    {todayHasEntry ? <Edit3 size={20} /> : <Plus size={20} />}
+                    <span>{todayHasEntry ? 'Modify Identity' : 'Log Session'}</span>
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        )}
-        {view === 'plans' && <PlanBuilder plans={plans} onUpdatePlans={setPlans} onLogPlan={handleLogPlan} externalIsEditing={isPlanEditing} externalEditingPlanId={editingPlanId} onOpenEditor={handlePlanEditorOpen} onCloseEditor={handlePlanEditorClose} />}
-        {view === 'history' && <History entries={entries} plans={plans} onEditEntry={handleEditEntry} />}
-        {view === 'discovery' && (
-          <DiscoveryPanel 
-            entries={entries} 
-            plans={plans} 
-            onUpdateEntries={setEntries} 
-            onUpdatePlans={setPlans} 
-            externalSyncStatus={syncStatus}
-            onManualSync={() => accessToken && performSync(accessToken, entries, plans)}
-          />
-        )}
+          )}
+          {view === 'plans' && (
+            <PlanBuilder 
+              plans={plans} 
+              onUpdatePlans={setPlans} 
+              onLogPlan={handleLogPlan} 
+              onBack={() => changeView('current')}
+              externalIsEditing={isPlanEditing} 
+              externalEditingPlanId={editingPlanId} 
+              onOpenEditor={handlePlanEditorOpen} 
+              onCloseEditor={handlePlanEditorClose} 
+              onDirtyChange={setIsDirty}
+            />
+          )}
+          {view === 'history' && <History entries={entries} plans={plans} onEditEntry={handleEditEntry} />}
+          {view === 'discovery' && (
+            <DiscoveryPanel 
+              entries={entries} 
+              plans={plans} 
+              onUpdateEntries={setEntries} 
+              onUpdatePlans={setPlans} 
+              externalSyncStatus={syncStatus}
+              onManualSync={() => accessToken && performSync(accessToken, entries, plans)}
+            />
+          )}
+        </div>
       </main>
       <nav className={`sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#121212]/95 backdrop-blur-xl border-t border-neutral-800 px-6 py-4 flex justify-between items-center transition-transform duration-300 ease-in-out ${isNavVisible ? 'translate-y-0' : 'translate-y-full'}`}><NavItems /></nav>
+      
+      <button 
+        onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+        className={`fixed right-6 sm:right-8 z-[60] bg-neutral-900 border border-neutral-700 p-3 rounded-full shadow-2xl transition-all duration-300 hover:bg-white hover:text-black active:scale-95 group backdrop-blur-sm
+        ${showScrollTop && !isLogModalOpen ? 'bottom-24 sm:bottom-12 opacity-100 scale-100' : 'bottom-12 opacity-0 scale-50 pointer-events-none'}`}
+        aria-label="Scroll to Top"
+      >
+        <ArrowUp size={24} className="group-hover:-translate-y-0.5 transition-transform" />
+      </button>
+
       {isLogModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => { setIsLogModalOpen(false); setPreselectedLogData(null); }} />
@@ -548,8 +641,33 @@ const App: React.FC = () => {
           </div>
         </div>
       )}
+
+      <ConfirmationModal 
+        isOpen={!!deleteConfirmationId}
+        title="Purge Identity Trace"
+        message="This operation will permanently delete the selected training log from the system matrix. This action cannot be undone."
+        confirmLabel="Purge Record"
+        onConfirm={confirmDeleteEntry}
+        onCancel={() => setDeleteConfirmationId(null)}
+      />
+
+      <ConfirmationModal 
+        isOpen={!!pendingView}
+        title="Unsaved Sequence Detected"
+        message="Your blueprint modifications have not been committed to the system matrix. Navigating away will purge these unsaved parameters."
+        confirmLabel="Discard & Exit"
+        onConfirm={() => {
+          setIsDirty(false);
+          const target = pendingView!;
+          setPendingView(null);
+          changeView(target, true);
+        }}
+        onCancel={() => setPendingView(null)}
+        variant="warning"
+      />
+
       {syncNotice && (
-        <div className="fixed bottom-24 sm:bottom-8 left-0 right-0 px-4 sm:left-1/2 sm:-translate-x-1/2 z-[100] animate-in slide-in-from-bottom-4 fade-in duration-300">
+        <div className="fixed bottom-24 sm:bottom-8 left-0 right-0 px-4 z-[100] flex justify-center animate-in slide-in-from-bottom-4 fade-in duration-300">
           <button 
             onClick={() => { setSyncNotice(false); changeView('discovery'); }} 
             className="w-full sm:w-auto bg-amber-500 text-black px-4 sm:px-6 py-2.5 sm:py-3 rounded-full font-mono text-[9px] sm:text-[10px] font-bold uppercase tracking-tight sm:tracking-[0.1em] shadow-2xl flex items-center justify-center gap-2 sm:gap-3 border border-white/20 hover:bg-amber-400 transition-colors"

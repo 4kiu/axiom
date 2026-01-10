@@ -1,5 +1,7 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState, useEffect, useRef } from 'react';
 import { WorkoutPlan, Exercise } from '../types';
+import ConfirmationModal from './ConfirmationModal.tsx';
 import { 
   Plus, 
   Trash2, 
@@ -11,7 +13,8 @@ import {
   FileText,
   BookOpen,
   ChevronDown,
-  Activity
+  Activity,
+  ArrowLeft
 } from 'lucide-react';
 
 // Custom SVG Icons for Muscle Groups
@@ -114,31 +117,39 @@ interface PlanBuilderProps {
   plans: WorkoutPlan[];
   onUpdatePlans: (plans: WorkoutPlan[]) => void;
   onLogPlan?: (planId: string) => void;
+  onBack?: () => void;
   // External navigation props from App.tsx
   externalIsEditing?: boolean;
   externalEditingPlanId?: string | null;
   onOpenEditor?: (planId: string | null) => void;
   onCloseEditor?: () => void;
+  onDirtyChange?: (isDirty: boolean) => void;
 }
 
 const PlanBuilder: React.FC<PlanBuilderProps> = ({ 
   plans, 
   onUpdatePlans, 
   onLogPlan,
+  onBack,
   externalIsEditing,
   externalEditingPlanId,
   onOpenEditor,
-  onCloseEditor
+  onCloseEditor,
+  onDirtyChange
 }) => {
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [activePicker, setActivePicker] = useState<string | null>(null); // Exercise ID
+  const [planToDeleteId, setPlanToDeleteId] = useState<string | null>(null);
+  const [exerciseToDeleteId, setExerciseToDeleteId] = useState<string | null>(null);
 
   const [tempPlan, setTempPlan] = useState<Partial<WorkoutPlan>>({
     name: '',
     description: '',
     exercises: []
   });
+
+  const initialPlanRef = useRef<string | null>(null);
 
   // Intermediate input state to handle typing decimals naturally
   const [inputStates, setInputStates] = useState<Record<string, string>>({});
@@ -150,6 +161,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
         setIsCreating(false);
         setEditingPlanId(null);
         setInputStates({});
+        initialPlanRef.current = null;
       } else {
         // If external says editing but internal doesn't have plan yet, populate it
         if (externalEditingPlanId && editingPlanId !== externalEditingPlanId) {
@@ -157,34 +169,47 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
           if (plan) {
             setTempPlan(plan);
             setEditingPlanId(externalEditingPlanId);
+            initialPlanRef.current = JSON.stringify(plan);
           }
         } else if (!externalEditingPlanId && !isCreating) {
            // External says creating
-           setTempPlan({
+           const newPlan = {
              id: crypto.randomUUID(),
              name: 'New Blueprint',
              description: '',
              exercises: [],
              createdAt: Date.now()
-           });
+           };
+           setTempPlan(newPlan);
            setIsCreating(true);
+           initialPlanRef.current = JSON.stringify(newPlan);
         }
       }
     }
   }, [externalIsEditing, externalEditingPlanId, plans]);
 
+  // Derive local dirty state for UI feedback (Save vs Saved)
+  const isDirty = (isCreating || editingPlanId) && initialPlanRef.current !== null && JSON.stringify(tempPlan) !== initialPlanRef.current;
+
+  // Track dirty state for parent
+  useEffect(() => {
+    onDirtyChange?.(isDirty);
+  }, [isDirty, onDirtyChange]);
+
   const startNewPlan = () => {
     if (onOpenEditor) {
       onOpenEditor(null);
     } else {
-      setIsCreating(true);
-      setTempPlan({
+      const newPlan = {
         id: crypto.randomUUID(),
         name: 'New Blueprint',
         description: '',
         exercises: [],
         createdAt: Date.now()
-      });
+      };
+      setTempPlan(newPlan);
+      setIsCreating(true);
+      initialPlanRef.current = JSON.stringify(newPlan);
     }
   };
 
@@ -199,18 +224,22 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
       onUpdatePlans([...plans, finalPlan]);
     }
     
-    if (onCloseEditor) {
-      onCloseEditor();
-    } else {
-      setIsCreating(false);
-      setEditingPlanId(null);
-      setInputStates({});
-    }
+    // Update the baseline reference so button shows "Saved" and editor stays open
+    initialPlanRef.current = JSON.stringify(tempPlan);
+    onDirtyChange?.(false);
+    
+    // Explicitly re-set local state to trigger render update for isDirty recalculation
+    setTempPlan({ ...tempPlan });
   };
 
   const deletePlan = (id: string) => {
-    if (window.confirm('Delete blueprint? All exercise data will be lost.')) {
-      onUpdatePlans(plans.filter(p => p.id !== id));
+    setPlanToDeleteId(id);
+  };
+
+  const confirmDeletePlan = () => {
+    if (planToDeleteId) {
+      onUpdatePlans(plans.filter(p => p.id !== planToDeleteId));
+      setPlanToDeleteId(null);
     }
   };
 
@@ -282,6 +311,16 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
       <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
         <div className="flex justify-between items-center border-b border-neutral-800 pb-4">
           <div className="flex-1 max-w-xl flex items-center gap-4">
+            <button 
+              onClick={() => { 
+                onDirtyChange?.(false);
+                if (onCloseEditor) onCloseEditor(); 
+                else { setIsCreating(false); setEditingPlanId(null); setInputStates({}); initialPlanRef.current = null; } 
+              }} 
+              className="p-2 -ml-2 text-neutral-500 hover:text-white transition-colors"
+            >
+              <ArrowLeft size={24} />
+            </button>
             <div className="shrink-0">
                <BookOpen className="text-neutral-500" size={28} />
             </div>
@@ -304,12 +343,13 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
             </div>
           </div>
           <div className="flex gap-2">
-            <button onClick={() => { if (onCloseEditor) onCloseEditor(); else { setIsCreating(false); setEditingPlanId(null); setInputStates({}); } }} className="p-2 text-neutral-500 hover:text-white transition-colors">
-              <X size={20} />
-            </button>
-            <button onClick={savePlan} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-transform active:scale-95">
+            <button 
+              onClick={savePlan} 
+              disabled={!isDirty || !tempPlan.name}
+              className={`px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-all active:scale-95 ${!isDirty ? 'bg-neutral-800 text-neutral-500 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-500 text-white'}`}
+            >
               <Check size={18} />
-              Save
+              {isDirty ? 'Save' : 'Saved'}
             </button>
           </div>
         </div>
@@ -443,7 +483,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
               </div>
 
               <div className="p-3 border-t border-neutral-800 flex justify-end">
-                <button onClick={() => removeExercise(ex.id)} className="text-neutral-600 hover:text-rose-500 transition-colors">
+                <button onClick={() => setExerciseToDeleteId(ex.id)} className="text-neutral-600 hover:text-rose-500 transition-colors">
                   <Trash2 size={14} />
                 </button>
               </div>
@@ -460,6 +500,20 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
             <span className="text-sm font-mono text-neutral-600 uppercase">Append Module</span>
           </button>
         </div>
+
+        <ConfirmationModal 
+          isOpen={!!exerciseToDeleteId}
+          title="Dismantle Module"
+          message="Are you sure you want to purge this exercise module from the blueprint? The specific load, set, and rep patterns will be lost."
+          confirmLabel="Purge Module"
+          onConfirm={() => {
+            if (exerciseToDeleteId) {
+              removeExercise(exerciseToDeleteId);
+              setExerciseToDeleteId(null);
+            }
+          }}
+          onCancel={() => setExerciseToDeleteId(null)}
+        />
       </div>
     );
   }
@@ -484,6 +538,15 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
           <span className="hidden sm:inline">New Blueprint</span>
         </button>
       </div>
+
+      <ConfirmationModal 
+        isOpen={!!planToDeleteId}
+        title="Dismantle Blueprint"
+        message="You are about to permanently delete this training blueprint and all its associated modular data. This action cannot be reversed."
+        confirmLabel="Confirm Deletion"
+        onConfirm={confirmDeletePlan}
+        onCancel={() => setPlanToDeleteId(null)}
+      />
 
       {plans.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center space-y-4 opacity-40">
