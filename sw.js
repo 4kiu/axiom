@@ -1,5 +1,4 @@
-
-const CACHE_NAME = 'axiom-os-v1.3';
+const CACHE_NAME = 'axiom-os-v1.2';
 const ASSETS = [
   './index.html',
   './manifest.json',
@@ -10,7 +9,8 @@ const ASSETS = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS).catch((err) => console.warn('PWA: Caching assets failed', err));
+      // Prioritize index.html to avoid 404s on start_url load
+      return cache.addAll(ASSETS).catch(err => console.warn('PWA: Caching assets failed', err));
     })
   );
   self.skipWaiting();
@@ -28,15 +28,23 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+  // Navigation requests (like opening the app) should always try index.html first if offline
   if (event.request.mode === 'navigate') {
     event.respondWith(
-      fetch(event.request).catch(() => caches.match('./index.html'))
-    );
-  } else {
-    event.respondWith(
-      caches.match(event.request).then((response) => {
-        return response || fetch(event.request).catch(() => null);
+      fetch(event.request).catch(() => {
+        return caches.match('./index.html');
       })
     );
+    return;
   }
+
+  // Other assets: Cache first, then network
+  event.respondWith(
+    caches.match(event.request).then((response) => {
+      return response || fetch(event.request).catch(() => {
+        // Silence errors for analytics/cross-origin tracking
+        return null;
+      });
+    })
+  );
 });
