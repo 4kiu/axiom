@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { IdentityState, WorkoutEntry, IDENTITY_METADATA, WorkoutPlan } from './types.ts';
 import WeeklyGrid from './components/WeeklyGrid.tsx';
@@ -400,7 +399,7 @@ const App: React.FC = () => {
   const handlePageTouchEnd = () => {
     if (!pageTouchStartX.current || !pageTouchEndX.current) return;
     const distance = pageTouchStartX.current - pageTouchEndX.current;
-    const threshold = 50; // Reduced from 100 for higher sensitivity
+    const threshold = 10; // Reduced for higher sensitivity
 
     if (Math.abs(distance) > threshold) {
       const currentIndex = VIEW_ORDER.indexOf(view);
