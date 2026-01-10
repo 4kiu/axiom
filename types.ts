@@ -7,8 +7,6 @@ export enum IdentityState {
   REST = 4
 }
 
-export type SyncMode = 'sync' | 'load' | 'off';
-
 export type ContextTag = 'tired' | 'exams' | 'stress' | 'normal' | 'injured' | 'energized';
 
 export interface Exercise {
