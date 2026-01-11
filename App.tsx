@@ -113,16 +113,23 @@ const App: React.FC = () => {
 
   const [hasImported, setHasImported] = useState(false);
   const [accessToken, setAccessToken] = useState<string | null>(() => localStorage.getItem('axiom_sync_token'));
-  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'loading' | 'success' | 'error'>('idle');
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'loading' | 'success' | 'error' | 'importing'>('idle');
   
   const lastKnownSyncTs = useRef<number>(Number(localStorage.getItem(LAST_SYNC_TS_KEY) || 0));
+  const isSyncInProgress = useRef(false);
+  const syncQueued = useRef(false);
 
   const [isDirty, setIsDirty] = useState(false);
   const [pendingView, setPendingView] = useState<ViewType | null>(null);
 
   const performSync = useCallback(async (token: string, currentEntries: WorkoutEntry[], currentPlans: WorkoutPlan[]) => {
     if (!hasImported) return;
+    if (isSyncInProgress.current) {
+      syncQueued.current = true;
+      return;
+    }
 
+    isSyncInProgress.current = true;
     setSyncStatus('syncing');
     try {
       const q_folder = encodeURIComponent("name = 'Axiom' and mimeType = 'application/vnd.google-apps.folder' and trashed = false");
@@ -193,11 +200,18 @@ const App: React.FC = () => {
       }
     } catch (e) {
       setSyncStatus('error');
+    } finally {
+      isSyncInProgress.current = false;
+      if (syncQueued.current) {
+        syncQueued.current = false;
+        // If a sync was queued during execution, trigger it again to catch up
+        performSync(token, currentEntries, currentPlans);
+      }
     }
   }, [hasImported]);
 
   const loadLatestSync = useCallback(async (token: string) => {
-    setSyncStatus('loading');
+    setSyncStatus('importing');
     try {
       const q_folder = encodeURIComponent("name = 'Axiom' and mimeType = 'application/vnd.google-apps.folder' and trashed = false");
       const listFolderResponse = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q_folder}`, {
@@ -285,7 +299,7 @@ const App: React.FC = () => {
 
   // AUTO-SYNC ON CHANGES: Push to cloud whenever entries or plans change
   useEffect(() => {
-    if (accessToken && hasImported && syncStatus === 'idle') {
+    if (accessToken && hasImported) {
       const timeoutId = setTimeout(() => {
         performSync(accessToken, entries, plans);
       }, 1500); // Debounce to prevent excessive API calls
@@ -537,7 +551,7 @@ const App: React.FC = () => {
     let dotColor = accessToken ? 'bg-emerald-500' : 'bg-neutral-600';
     let Icon = accessToken ? Cloud : CloudOff;
     
-    if (statusText === 'Importing...') { // Logic stays identical to provide consistent status
+    if (syncStatus === 'importing') {
       statusText = 'Importing...';
       dotColor = 'bg-amber-500';
       Icon = RefreshCw;
@@ -556,7 +570,7 @@ const App: React.FC = () => {
 
     return (
       <div className="flex items-center gap-2 px-3 py-1.5 bg-neutral-900/40 border border-neutral-800 rounded-lg">
-        <div className={`w-1.5 h-1.5 rounded-full ${dotColor} ${syncStatus !== 'idle' ? 'animate-pulse' : ''}`} />
+        <div className={`w-1.5 h-1.5 rounded-full ${dotColor} ${syncStatus !== 'idle' && syncStatus !== 'success' && syncStatus !== 'error' ? 'animate-pulse' : ''}`} />
         <span className="text-[10px] font-mono text-neutral-400 uppercase tracking-tighter whitespace-nowrap">{statusText}</span>
         <Icon size={12} className={`text-neutral-500 ${syncStatus !== 'idle' && syncStatus !== 'success' && syncStatus !== 'error' ? 'animate-spin' : ''}`} />
       </div>
