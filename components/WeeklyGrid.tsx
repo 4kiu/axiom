@@ -17,7 +17,7 @@ const startOfDay = (date: Date | number) => {
 const startOfWeek = (date: Date | number, options?: { weekStartsOn?: number }) => {
   const d = new Date(date);
   const day = d.getDay();
-  const weekStartsOn = options?.weekStartsOn ?? 0;
+  const weekStartsOn = options?.weekStartsOn ?? 6; // Updated default to 6 (Saturday)
   const diff = (day < weekStartsOn ? 7 : 0) + day - weekStartsOn;
   d.setDate(d.getDate() - diff);
   d.setHours(0, 0, 0, 0);
@@ -38,7 +38,7 @@ const WeeklyGrid: React.FC<WeeklyGridProps> = ({
   plans, 
   onEntryClick, 
   onCellClick, 
-  weekStart = startOfWeek(new Date(), { weekStartsOn: 0 }),
+  weekStart = startOfWeek(new Date(), { weekStartsOn: 6 }), // Changed default to 6 (Saturday)
   isCompact = false
 }) => {
   const days: Date[] = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));

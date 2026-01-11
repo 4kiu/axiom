@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useRef } from 'react';
 import { WorkoutPlan, Exercise } from '../types';
 import ConfirmationModal from './ConfirmationModal.tsx';
@@ -252,8 +251,8 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
       id: crypto.randomUUID(),
       name: 'New Exercise',
       muscleType: 'Chest',
-      sets: 3,
-      reps: '10',
+      sets: 0,
+      reps: '',
       weight: 0,
       notes: ''
     };
@@ -413,63 +412,63 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                 </div>
               </div>
 
-              <div className="p-4 space-y-3 flex-1">
+              <div className="p-4 space-y-4 flex-1">
                 <input 
                   type="text"
                   value={ex.name}
                   onFocus={(e) => e.target.select()}
                   onChange={(e) => updateExercise(ex.id, { name: e.target.value })}
-                  className="bg-transparent border-none p-0 text-sm font-bold text-white w-full focus:ring-0"
+                  className="bg-transparent border-none p-0 text-sm font-bold text-white w-full focus:ring-0 mb-1"
                 />
                 
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-[1.5fr_0.85fr_0.85fr_0.85fr] md:grid-cols-2 gap-2 items-end">
+                  {/* Muscle Picker */}
                   <div className="space-y-1 relative">
-                    <span className="text-[10px] font-mono text-neutral-600 uppercase">Target Muscle</span>
+                    <span className="text-[9px] font-mono text-neutral-600 uppercase block truncate">Muscle</span>
                     <button 
                       onClick={() => setActivePicker(ex.id)}
-                      className="flex items-center justify-between bg-neutral-950 border border-neutral-800 rounded px-2 py-1.5 text-[11px] w-full text-left hover:border-neutral-600 transition-colors"
+                      className="flex items-center justify-center bg-neutral-950 border border-neutral-800 rounded-lg h-10 sm:h-11 px-1 text-[11px] w-full hover:border-neutral-600 transition-all active:scale-95 group/btn"
                     >
-                      <div className="flex items-center gap-2">
-                        <MuscleIcon type={ex.muscleType} className="w-3 h-3 text-neutral-400" />
-                        <span className="truncate">{ex.muscleType}</span>
-                      </div>
-                      <ChevronDown size={10} className="text-neutral-600" />
+                      <span className="truncate">{ex.muscleType}</span>
                     </button>
                   </div>
+
+                  {/* Weight */}
                   <div className="space-y-1">
-                    <span className="text-[10px] font-mono text-neutral-600 uppercase">Load (kg)</span>
+                    <span className="text-[9px] font-mono text-neutral-600 uppercase block truncate">KG</span>
                     <input 
                       type="text"
                       inputMode="decimal"
                       value={inputStates[`${ex.id}-weight`] ?? (ex.weight === 0 ? '' : ex.weight.toString())}
                       onFocus={(e) => e.target.select()}
                       onChange={(e) => updateNumericField(ex.id, 'weight', e.target.value)}
-                      className="bg-neutral-950 border border-neutral-800 rounded px-2 py-1.5 text-[11px] w-full focus:border-neutral-700 outline-none"
+                      className="bg-neutral-950 border border-neutral-800 rounded-lg h-10 sm:h-11 px-2 text-[11px] w-full focus:border-neutral-600 outline-none text-center transition-all"
                     />
                   </div>
-                </div>
 
-                <div className="grid grid-cols-2 gap-2">
+                  {/* Sets */}
                   <div className="space-y-1">
-                    <span className="text-[10px] font-mono text-neutral-600 uppercase">Sets</span>
+                    <span className="text-[9px] font-mono text-neutral-600 uppercase block truncate">Sets</span>
                     <input 
                       type="text"
                       inputMode="decimal"
                       value={inputStates[`${ex.id}-sets`] ?? (ex.sets === 0 ? '' : ex.sets.toString())}
                       onFocus={(e) => e.target.select()}
                       onChange={(e) => updateNumericField(ex.id, 'sets', e.target.value)}
-                      className="bg-neutral-950 border border-neutral-800 rounded px-2 py-1.5 text-[11px] w-full focus:border-neutral-700 outline-none"
+                      className="bg-neutral-950 border border-neutral-800 rounded-lg h-10 sm:h-11 px-2 text-[11px] w-full focus:border-neutral-600 outline-none text-center transition-all"
                     />
                   </div>
+
+                  {/* Reps */}
                   <div className="space-y-1">
-                    <span className="text-[10px] font-mono text-neutral-600 uppercase">Reps</span>
+                    <span className="text-[9px] font-mono text-neutral-600 uppercase block truncate">Reps</span>
                     <input 
                       type="text"
                       inputMode="decimal"
                       value={inputStates[`${ex.id}-reps`] ?? ex.reps}
                       onFocus={(e) => e.target.select()}
                       onChange={(e) => updateNumericField(ex.id, 'reps', e.target.value)}
-                      className="bg-neutral-950 border border-neutral-800 rounded px-2 py-1.5 text-[11px] w-full focus:border-neutral-700 outline-none"
+                      className="bg-neutral-950 border border-neutral-800 rounded-lg h-10 sm:h-11 px-2 text-[11px] w-full focus:border-neutral-600 outline-none text-center transition-all"
                     />
                   </div>
                 </div>
@@ -479,14 +478,14 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                   <textarea 
                     value={ex.notes}
                     onChange={(e) => updateExercise(ex.id, { notes: e.target.value })}
-                    className="bg-neutral-950 border border-neutral-800 rounded px-2 py-1 text-[11px] w-full focus:border-neutral-700 outline-none min-h-[60px]"
+                    className="bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-[11px] w-full focus:border-neutral-700 outline-none min-h-[60px] leading-relaxed"
                     placeholder="Tempo, cues, specific setup..."
                   />
                 </div>
               </div>
 
               <div className="p-3 border-t border-neutral-800 flex justify-end">
-                <button onClick={() => setExerciseToDeleteId(ex.id)} className="text-neutral-600 hover:text-rose-500 transition-colors">
+                <button onClick={() => setExerciseToDeleteId(ex.id)} className="text-neutral-600 hover:text-rose-500 transition-colors p-1">
                   <Trash2 size={14} />
                 </button>
               </div>

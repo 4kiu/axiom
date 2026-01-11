@@ -58,6 +58,17 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
   const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
+    // 30 day inactivity check: logout only if user has been away for more than 30 days
+    const lastActive = localStorage.getItem('axiom_last_active_ts');
+    const now = Date.now();
+    const thirtyDaysInMs = 30 * 24 * 60 * 60 * 1000;
+
+    if (lastActive && (now - parseInt(lastActive) > thirtyDaysInMs)) {
+      handleLogout();
+    } else {
+      localStorage.setItem('axiom_last_active_ts', now.toString());
+    }
+
     if (accessToken && !userInfo) fetchUserInfo(accessToken);
   }, [accessToken, userInfo]);
 
@@ -71,7 +82,11 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
         const profile = { name: data.name, email: data.email };
         setUserInfo(profile);
         localStorage.setItem('axiom_sync_profile', JSON.stringify(profile));
-      } else if (response.status === 401) handleLogout();
+      } else if (response.status === 401) {
+        // Remember logged in account: keep profile but clear the stale token
+        setAccessToken(null);
+        localStorage.removeItem('axiom_sync_token');
+      }
     } catch (e) {
       console.error("Discovery: Profile fetch failure", e);
     }
@@ -79,6 +94,7 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
 
   const loginWithGoogle = () => {
     setAuthError(null);
+    localStorage.setItem('axiom_last_active_ts', Date.now().toString());
     try {
       if (typeof google !== 'undefined' && google.accounts?.oauth2) {
         const clientId = process.env.GOOGLE_CLIENT_ID;
@@ -113,12 +129,14 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
     setUserInfo(null);
     localStorage.removeItem('axiom_sync_token');
     localStorage.removeItem('axiom_sync_profile');
+    localStorage.removeItem('axiom_last_active_ts');
     setAuthError(null);
     window.location.reload();
   };
 
   const loadLatestSync = async () => {
     if (!accessToken) return loginWithGoogle();
+    localStorage.setItem('axiom_last_active_ts', Date.now().toString());
     setLocalSyncStatus('loading');
     try {
       const q_folder = encodeURIComponent("name = 'Axiom' and mimeType = 'application/vnd.google-apps.folder' and trashed = false");
@@ -160,6 +178,7 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
   };
 
   const performDiscovery = async () => {
+    localStorage.setItem('axiom_last_active_ts', Date.now().toString());
     if (entries.length < 3) {
       setAnalysis("Insufficient data for pattern discovery. Continue logging sessions.");
       return;

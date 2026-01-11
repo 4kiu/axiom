@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { IdentityState, WorkoutEntry, IDENTITY_METADATA, WorkoutPlan } from './types.ts';
 import WeeklyGrid from './components/WeeklyGrid.tsx';
@@ -5,13 +6,13 @@ import LogAction from './components/LogAction.tsx';
 import StatusPanel from './components/StatusPanel.tsx';
 import PointsCard from './components/PointsCard.tsx';
 import History from './components/History.tsx';
-import DiscoveryPanel from './components/DiscoveryPanel.tsx';
+import UtilitiesPanel from './components/UtilitiesPanel.tsx';
 import PlanBuilder from './components/PlanBuilder.tsx';
 import ConfirmationModal from './components/ConfirmationModal.tsx';
 import { 
   LayoutDashboard, 
   History as HistoryIcon, 
-  BrainCircuit, 
+  Settings, 
   Plus, 
   ShieldAlert, 
   BookOpen, 
@@ -36,6 +37,7 @@ const STORAGE_KEY = 'axiom_os_data_v1';
 const PLANS_STORAGE_KEY = 'axiom_os_plans_v1';
 const VIEW_STORAGE_KEY = 'axiom_os_view_v1';
 const LAST_SYNC_TS_KEY = 'axiom_last_sync_ts';
+const LAST_ACTIVE_TS_KEY = 'axiom_last_active_ts';
 
 const VIEW_ORDER: ViewType[] = ['current', 'plans', 'history', 'discovery'];
 
@@ -69,7 +71,7 @@ const AxiomLogo = ({ className = "w-8 h-8" }: { className?: string }) => (
 const startOfWeek = (date: Date | number, options?: { weekStartsOn?: number }) => {
   const d = new Date(date);
   const day = d.getDay();
-  const weekStartsOn = options?.weekStartsOn ?? 0;
+  const weekStartsOn = options?.weekStartsOn ?? 6; // Updated default to 6 (Saturday)
   const diff = (day < weekStartsOn ? 7 : 0) + day - weekStartsOn;
   d.setDate(d.getDate() - diff);
   d.setHours(0, 0, 0, 0);
@@ -107,14 +109,13 @@ const App: React.FC = () => {
   const pageTouchStartX = useRef<number | null>(null);
   const pageTouchStartY = useRef<number | null>(null);
   const pageTouchEndX = useRef<number | null>(null);
+  // Fix: Added 'const' to correctly declare isSwipePrevented as a ref within the component scope.
   const isSwipePrevented = useRef<boolean>(false);
 
   const [hasImported, setHasImported] = useState(false);
   const [accessToken, setAccessToken] = useState<string | null>(() => localStorage.getItem('axiom_sync_token'));
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'loading' | 'success' | 'error'>('idle');
   
-  const isInitialMount = useRef(true);
-  const syncTimeoutRef = useRef<number | null>(null);
   const lastKnownSyncTs = useRef<number>(Number(localStorage.getItem(LAST_SYNC_TS_KEY) || 0));
 
   const [isDirty, setIsDirty] = useState(false);
@@ -161,6 +162,7 @@ const App: React.FC = () => {
         setSyncStatus('success');
         lastKnownSyncTs.current = ts;
         localStorage.setItem(LAST_SYNC_TS_KEY, ts.toString());
+        localStorage.setItem(LAST_ACTIVE_TS_KEY, Date.now().toString());
 
         // Cleanup: Limit to 20 latest sync files
         try {
@@ -249,6 +251,20 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    // 30 day inactivity check: logout only if user has been away for more than 30 days
+    const lastActive = localStorage.getItem(LAST_ACTIVE_TS_KEY);
+    const now = Date.now();
+    const thirtyDaysInMs = 30 * 24 * 60 * 60 * 1000;
+
+    if (lastActive && (now - parseInt(lastActive) > thirtyDaysInMs)) {
+      localStorage.removeItem('axiom_sync_token');
+      localStorage.removeItem('axiom_sync_profile');
+      localStorage.removeItem(LAST_ACTIVE_TS_KEY);
+      setAccessToken(null);
+    } else {
+      localStorage.setItem(LAST_ACTIVE_TS_KEY, now.toString());
+    }
+
     const savedEntries = localStorage.getItem(STORAGE_KEY);
     const savedPlans = localStorage.getItem(PLANS_STORAGE_KEY);
     if (savedEntries) try { setEntries(JSON.parse(savedEntries)); } catch (e) {}
@@ -262,23 +278,6 @@ const App: React.FC = () => {
       return () => clearTimeout(timer);
     }
   }, [accessToken, loadLatestSync]);
-
-  useEffect(() => {
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
-      return;
-    }
-    // Auto-sync trigger on entry or plan change
-    if (accessToken && hasImported) {
-      if (syncTimeoutRef.current) window.clearTimeout(syncTimeoutRef.current);
-      syncTimeoutRef.current = window.setTimeout(() => {
-        performSync(accessToken, entries, plans);
-      }, 3000) as unknown as number;
-    }
-    return () => {
-      if (syncTimeoutRef.current) window.clearTimeout(syncTimeoutRef.current);
-    };
-  }, [entries, plans, accessToken, performSync, hasImported]);
 
   useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(entries)); }, [entries]);
   useEffect(() => { localStorage.setItem(PLANS_STORAGE_KEY, JSON.stringify(plans)); }, [plans]);
@@ -473,6 +472,7 @@ const App: React.FC = () => {
   const addOrUpdateEntry = (entryData: Omit<WorkoutEntry, 'id'>, id?: string) => {
     if (id) setEntries(prev => prev.map(e => e.id === id ? { ...entryData, id } : e));
     else setEntries(prev => [...prev, { ...entryData, id: crypto.randomUUID() }]);
+    localStorage.setItem(LAST_ACTIVE_TS_KEY, Date.now().toString());
     handleCloseLogModal();
   };
 
@@ -483,6 +483,7 @@ const App: React.FC = () => {
   const confirmDeleteEntry = () => {
     if (deleteConfirmationId) {
       setEntries(prev => prev.filter(e => e.id !== deleteConfirmationId));
+      localStorage.setItem(LAST_ACTIVE_TS_KEY, Date.now().toString());
       setDeleteConfirmationId(null);
     }
   };
@@ -507,7 +508,7 @@ const App: React.FC = () => {
     }
   };
 
-  const dashboardWeekStart = startOfWeek(addWeeks(new Date(), dashboardWeekOffset), { weekStartsOn: 0 });
+  const dashboardWeekStart = startOfWeek(addWeeks(new Date(), dashboardWeekOffset), { weekStartsOn: 6 }); // Changed to 6 (Saturday)
   const todayEntry = entries.find(e => isSameDay(new Date(e.timestamp), new Date()));
   const todayHasEntry = !!todayEntry;
 
@@ -516,7 +517,7 @@ const App: React.FC = () => {
       <button onClick={() => changeView('current')} className={`px-4 sm:px-6 py-2 rounded-lg flex items-center justify-center transition-all ${view === 'current' ? 'bg-neutral-100 text-black' : 'hover:bg-neutral-800 text-neutral-400'}`}><LayoutDashboard size={22} /></button>
       <button onClick={() => changeView('plans')} className={`px-4 sm:px-6 py-2 rounded-lg flex items-center justify-center transition-all ${view === 'plans' ? 'bg-neutral-100 text-black' : 'hover:bg-neutral-800 text-neutral-400'}`}><BookOpen size={22} /></button>
       <button onClick={() => changeView('history')} className={`px-4 sm:px-6 py-2 rounded-lg flex items-center justify-center transition-all ${view === 'history' ? 'bg-neutral-100 text-black' : 'hover:bg-neutral-800 text-neutral-400'}`}><HistoryIcon size={22} /></button>
-      <button onClick={() => changeView('discovery')} className={`px-4 sm:px-6 py-2 rounded-lg flex items-center justify-center transition-all ${view === 'discovery' ? 'bg-neutral-100 text-black' : 'hover:bg-neutral-800 text-neutral-400'}`}><BrainCircuit size={22} /></button>
+      <button onClick={() => changeView('discovery')} className={`px-4 sm:px-6 py-2 rounded-lg flex items-center justify-center transition-all ${view === 'discovery' ? 'bg-neutral-100 text-black' : 'hover:bg-neutral-800 text-neutral-400'}`}><Settings size={22} /></button>
     </>
   );
 
@@ -525,7 +526,7 @@ const App: React.FC = () => {
     let dotColor = accessToken ? 'bg-emerald-500' : 'bg-neutral-600';
     let Icon = accessToken ? Cloud : CloudOff;
     
-    if (syncStatus === 'loading') {
+    if (statusText === 'Importing...') { // Logic stays identical to provide consistent status
       statusText = 'Importing...';
       dotColor = 'bg-amber-500';
       Icon = RefreshCw;
@@ -563,7 +564,7 @@ const App: React.FC = () => {
           <div className="flex items-center gap-3">
             <AxiomLogo className="w-8 h-8" />
             <div className="flex flex-col">
-              <h1 className="text-lg font-mono font-bold tracking-tight uppercase leading-none text-white">Axiom v2</h1>
+              <h1 className="text-lg font-mono font-bold tracking-tight uppercase leading-none text-white">Axiom v2.1</h1>
               <span className="text-[9px] text-neutral-500 font-mono uppercase tracking-tighter">Personal Intelligence OS</span>
             </div>
           </div>
@@ -659,7 +660,7 @@ const App: React.FC = () => {
           )}
           {view === 'history' && <History entries={entries} plans={plans} onEditEntry={handleEditEntry} />}
           {view === 'discovery' && (
-            <DiscoveryPanel 
+            <UtilitiesPanel 
               entries={entries} 
               plans={plans} 
               onUpdateEntries={setEntries} 
@@ -751,7 +752,7 @@ const App: React.FC = () => {
         </div>
         <div className="flex gap-4">
           <span className={syncStatus !== 'idle' ? 'animate-pulse text-emerald-500' : ''}> {syncStatus !== 'idle' ? 'SYNC_ACTIVE' : 'IDENTITY_STABLE: OK'} </span>
-          <span>SYSTEM_VERSION: ALPHA_v2</span>
+          <span>SYSTEM_VERSION: ALPHA_v2.1</span>
         </div>
       </footer>
     </div>

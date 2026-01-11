@@ -8,7 +8,7 @@ import { ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
 const startOfWeek = (date: Date | number, options?: { weekStartsOn?: number }) => {
   const d = new Date(date);
   const day = d.getDay();
-  const weekStartsOn = options?.weekStartsOn ?? 0;
+  const weekStartsOn = options?.weekStartsOn ?? 6; // Updated default to 6 (Saturday)
   const diff = (day < weekStartsOn ? 7 : 0) + day - weekStartsOn;
   d.setDate(d.getDate() - diff);
   d.setHours(0, 0, 0, 0);
@@ -31,8 +31,8 @@ interface HistoryProps {
 const History: React.FC<HistoryProps> = ({ entries, plans, onEditEntry }) => {
   const [weekOffset, setWeekOffset] = useState(0);
 
-  // Ensure Sunday start
-  const selectedWeekStart = startOfWeek(subWeeks(new Date(), weekOffset), { weekStartsOn: 0 });
+  // Ensure Saturday start
+  const selectedWeekStart = startOfWeek(subWeeks(new Date(), weekOffset), { weekStartsOn: 6 }); // Changed to 6 (Saturday)
 
   return (
     <div className="space-y-8">
