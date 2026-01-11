@@ -1,5 +1,5 @@
-
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { WorkoutPlan, Exercise } from '../types';
 import ConfirmationModal from './ConfirmationModal.tsx';
 import { 
@@ -14,7 +14,11 @@ import {
   BookOpen,
   ChevronDown,
   Activity,
-  ArrowLeft
+  ArrowLeft,
+  Link,
+  Upload,
+  Image as ImageControlIcon,
+  AlertTriangle
 } from 'lucide-react';
 
 // Custom SVG Icons for Muscle Groups
@@ -142,6 +146,9 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
   const [activePicker, setActivePicker] = useState<string | null>(null); // Exercise ID
   const [planToDeleteId, setPlanToDeleteId] = useState<string | null>(null);
   const [exerciseToDeleteId, setExerciseToDeleteId] = useState<string | null>(null);
+  const [supersetPairToDelete, setSupersetPairToDelete] = useState<{ ex1: Exercise, ex2: Exercise } | null>(null);
+  const [viewingImageExId, setViewingImageExId] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [tempPlan, setTempPlan] = useState<Partial<WorkoutPlan>>({
     name: '',
@@ -189,7 +196,6 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
   }, [externalIsEditing, externalEditingPlanId, plans]);
 
   // Derive local dirty state for UI feedback (Save vs Saved)
-  // Ensured boolean type via explicit comparison to prevent TS mapping errors
   const isDirty = (isCreating || editingPlanId !== null) && 
                   initialPlanRef.current !== null && 
                   JSON.stringify(tempPlan) !== initialPlanRef.current;
@@ -227,11 +233,8 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
       onUpdatePlans([...plans, finalPlan]);
     }
     
-    // Update the baseline reference so button shows "Saved" and editor stays open
     initialPlanRef.current = JSON.stringify(tempPlan);
     onDirtyChange?.(false);
-    
-    // Explicitly re-set local state to trigger render update for isDirty recalculation
     setTempPlan({ ...tempPlan });
   };
 
@@ -269,13 +272,70 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
     }));
   };
 
+  const toggleSuperset = (exerciseId: string) => {
+    const exercises = tempPlan.exercises || [];
+    const exercise = exercises.find(ex => ex.id === exerciseId);
+    if (!exercise) return;
+
+    let updatedExercises = [...exercises];
+    
+    if (exercise.supersetId) {
+      updatedExercises = updatedExercises.map(ex => 
+        ex.id === exerciseId ? { ...ex, supersetId: undefined } : ex
+      );
+    } else {
+      const supersetCounts: Record<number, number> = {};
+      updatedExercises.forEach(ex => {
+        if (ex.supersetId) {
+          supersetCounts[ex.supersetId] = (supersetCounts[ex.supersetId] || 0) + 1;
+        }
+      });
+
+      let targetSupersetId = Object.keys(supersetCounts).find(id => supersetCounts[Number(id)] === 1);
+
+      if (targetSupersetId) {
+        updatedExercises = updatedExercises.map(ex => 
+          ex.id === exerciseId ? { ...ex, supersetId: Number(targetSupersetId) } : ex
+        );
+
+        const sId = Number(targetSupersetId);
+        const members = updatedExercises.filter(ex => ex.supersetId === sId);
+        if (members.length === 2) {
+          const idx1 = updatedExercises.findIndex(ex => ex.id === members[0].id);
+          const idx2 = updatedExercises.findIndex(ex => ex.id === members[1].id);
+          const topIdx = Math.min(idx1, idx2);
+          const bottomIdx = Math.max(idx1, idx2);
+          
+          if (bottomIdx !== topIdx + 1) {
+            const bottomEx = updatedExercises[bottomIdx];
+            const filtered = updatedExercises.filter((_, idx) => idx !== bottomIdx);
+            filtered.splice(topIdx + 1, 0, bottomEx);
+            updatedExercises = filtered;
+          }
+        }
+      } else {
+        const nextId = Math.max(0, ...Object.keys(supersetCounts).map(Number)) + 1;
+        updatedExercises = updatedExercises.map(ex => 
+          ex.id === exerciseId ? { ...ex, supersetId: nextId } : ex
+        );
+      }
+    }
+
+    setTempPlan(prev => ({ ...prev, exercises: updatedExercises }));
+  };
+
+  const removeSupersetGroup = (sId: number) => {
+    setTempPlan(prev => ({
+      ...prev,
+      exercises: prev.exercises?.map(ex => ex.supersetId === sId ? { ...ex, supersetId: undefined } : ex)
+    }));
+  };
+
   const updateNumericField = (exerciseId: string, field: keyof Exercise, val: string) => {
-    // Only allow digits and a single dot
     const filtered = val.replace(/[^0-9.]/g, '');
     const dotCount = (filtered.match(/\./g) || []).length;
     if (dotCount > 1) return;
 
-    // Track visual state locally so user can type "0." or "10."
     const stateKey = `${exerciseId}-${field}`;
     setInputStates(prev => ({ ...prev, [stateKey]: filtered }));
 
@@ -304,9 +364,238 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
       const reader = new FileReader();
       reader.onloadend = () => {
         updateExercise(exerciseId, { image: reader.result as string });
+        setViewingImageExId(null);
       };
       reader.readAsDataURL(file);
     }
+  };
+
+  const currentViewingEx = tempPlan.exercises?.find(ex => ex.id === viewingImageExId);
+
+  const ExerciseCard = ({ ex, index, pairStyle, isGrouped, onGroupDelete }: { 
+    ex: Exercise, 
+    index: number, 
+    pairStyle?: 'first' | 'second', 
+    isGrouped?: boolean,
+    onGroupDelete?: () => void 
+  }) => {
+    const isFirstInPair = pairStyle === 'first';
+    const isSecondInPair = pairStyle === 'second';
+
+    let roundingClass = 'rounded-xl';
+    if (isFirstInPair) roundingClass = 'rounded-t-xl md:rounded-l-xl md:rounded-tr-none md:rounded-br-none rounded-b-none';
+    if (isSecondInPair) roundingClass = 'rounded-b-xl md:rounded-r-xl md:rounded-tl-none md:rounded-bl-none rounded-t-none';
+
+    return (
+      <div 
+        key={ex.id} 
+        className={`${isGrouped ? 'bg-[#171717]' : 'bg-neutral-900'} border border-neutral-800 ${roundingClass} overflow-hidden flex flex-col group relative 
+          ${isFirstInPair ? 'border-b-0 md:border-b md:border-r-0' : ''} 
+          ${isSecondInPair ? 'border-t-0 md:border-t md:border-l-0' : ''}
+        `}
+      >
+        
+        {activePicker === ex.id && (
+          <div className="absolute inset-0 z-50 bg-neutral-950/95 backdrop-blur-md p-3 flex flex-col animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-[10px] font-mono text-neutral-400 uppercase tracking-widest">Select Target Muscle</span>
+              <button onClick={() => setActivePicker(null)} className="p-1 text-neutral-500 hover:text-white transition-colors">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="grid grid-cols-4 gap-2 flex-1 overflow-y-auto pr-1">
+              {MUSCLE_GROUPS.map(group => (
+                <button
+                  key={group}
+                  onClick={() => {
+                    updateExercise(ex.id, { muscleType: group });
+                    setActivePicker(null);
+                  }}
+                  className={`flex flex-col items-center justify-center gap-1.5 p-2 rounded-xl border transition-all
+                    ${ex.muscleType === group ? 'bg-neutral-100 border-neutral-100 text-black' : 'bg-neutral-900 border-neutral-800 text-neutral-500 hover:border-neutral-700'}
+                  `}
+                >
+                  <MuscleIcon type={group} className="w-5 h-5" />
+                  <span className="text-[8px] font-bold uppercase">{group}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Main Control Row */}
+        <div className={`flex flex-row p-3 gap-3 items-stretch ${isSecondInPair ? 'mt-[-10]' : ''}`}>
+          <div className="w-32 sm:w-44 shrink-0">
+            <div 
+              onClick={() => setViewingImageExId(ex.id)}
+              className="relative w-full h-full bg-neutral-950 border border-neutral-800 rounded-lg flex items-center justify-center overflow-hidden cursor-pointer hover:border-neutral-700 transition-all group/img"
+            >
+              {ex.image ? (
+                <img src={ex.image} alt={ex.name} className="w-full h-full object-cover opacity-60 group-hover/img:opacity-80 transition-opacity" />
+              ) : (
+                <div className="flex flex-col items-center justify-center gap-2 opacity-20 group-hover/img:opacity-40 transition-opacity w-full h-full">
+                  <MuscleIcon type={ex.muscleType} className="w-8 h-8 sm:w-12 sm:h-12" />
+                  <span className="text-[8px] font-mono">NO IMAGE</span>
+                </div>
+              )}
+              
+              <div className="absolute top-1.5 left-1.5 bg-black/40 px-1 py-0.5 rounded text-[8px] font-mono text-neutral-500 border border-neutral-800/50">
+                EX-{index + 1}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex-1 flex flex-col min-w-0 justify-between gap-2">
+            <div className="flex items-center">
+              <input 
+                type="text"
+                value={ex.name}
+                onFocus={(e) => e.target.select()}
+                onChange={(e) => updateExercise(ex.id, { name: e.target.value })}
+                className="bg-transparent border-none p-0 text-sm font-bold text-white w-full focus:ring-0 truncate"
+                placeholder="Exercise Title"
+              />
+            </div>
+            
+            <div className="grid grid-cols-2 gap-2 flex-1">
+              <div className="space-y-0.5 flex flex-col">
+                <span className="text-[8px] font-mono text-neutral-600 uppercase block truncate">Muscle</span>
+                <button 
+                  onClick={() => setActivePicker(ex.id)}
+                  className="flex items-center justify-center bg-neutral-950 border border-neutral-800 rounded-lg h-full min-h-[36px] px-1 text-[10px] w-full hover:border-neutral-600 transition-all active:scale-95 group/btn"
+                >
+                  <span className="truncate">{ex.muscleType}</span>
+                </button>
+              </div>
+
+              <div className="space-y-0.5 flex flex-col">
+                <span className="text-[8px] font-mono text-neutral-600 uppercase block truncate">KG</span>
+                <input 
+                  type="text"
+                  inputMode="decimal"
+                  value={inputStates[`${ex.id}-weight`] ?? (ex.weight === 0 ? '' : ex.weight.toString())}
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => updateNumericField(ex.id, 'weight', e.target.value)}
+                  className="bg-neutral-950 border border-neutral-800 rounded-lg h-full min-h-[36px] px-1 text-[10px] w-full focus:border-neutral-600 outline-none text-center transition-all"
+                />
+              </div>
+
+              <div className="space-y-0.5 flex flex-col">
+                <span className="text-[8px] font-mono text-neutral-600 uppercase block truncate">Sets</span>
+                <input 
+                  type="text"
+                  inputMode="decimal"
+                  value={inputStates[`${ex.id}-sets`] ?? (ex.sets === 0 ? '' : ex.sets.toString())}
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => updateNumericField(ex.id, 'sets', e.target.value)}
+                  className="bg-neutral-950 border border-neutral-800 rounded-lg h-full min-h-[36px] px-1 text-[10px] w-full focus:border-neutral-600 outline-none text-center transition-all"
+                />
+              </div>
+
+              <div className="space-y-0.5 flex flex-col">
+                <span className="text-[8px] font-mono text-neutral-600 uppercase block truncate">Reps</span>
+                <input 
+                  type="text"
+                  inputMode="decimal"
+                  value={inputStates[`${ex.id}-reps`] ?? ex.reps}
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => updateNumericField(ex.id, 'reps', e.target.value)}
+                  className="bg-neutral-950 border border-neutral-800 rounded-lg h-full min-h-[36px] px-1 text-[10px] w-full focus:border-neutral-600 outline-none text-center transition-all"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className={`px-3 pb-3 space-y-2 ${isFirstInPair ? 'mb-1' : ''}`}>
+          <div className="space-y-0.5">
+            <span className="text-[8px] font-mono text-neutral-700 uppercase">Notes</span>
+            <textarea 
+              value={ex.notes}
+              onChange={(e) => updateExercise(ex.id, { notes: e.target.value })}
+              className="bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1.5 text-[10px] w-full focus:border-neutral-700 outline-none min-h-[44px] max-h-[80px] leading-snug"
+              placeholder="Tempo, cues..."
+            />
+          </div>
+        </div>
+
+        <div className={`p-2 border-t border-neutral-800/50 flex justify-end gap-2 items-center ${isGrouped ? 'bg-transparent' : 'bg-black/10'}`}>
+          {!isGrouped && (
+            <button 
+              onClick={() => toggleSuperset(ex.id)} 
+              className={`p-1 rounded-md border flex items-center gap-1 transition-all ${ex.supersetId ? 'bg-emerald-500 text-black border-emerald-400' : 'bg-neutral-800 border-neutral-700 text-neutral-500'}`}
+            >
+              <Link size={12} />
+            </button>
+          )}
+          {(!isGrouped || isSecondInPair) && (
+            <button 
+              onClick={() => isGrouped ? onGroupDelete?.() : setExerciseToDeleteId(ex.id)} 
+              className="text-neutral-600 hover:text-rose-500 transition-colors p-1"
+            >
+              <Trash2 size={13} />
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderExerciseBlocks = () => {
+    const exercises = tempPlan.exercises || [];
+    const blocks: React.ReactNode[] = [];
+    let i = 0;
+
+    while (i < exercises.length) {
+      const current = exercises[i];
+      const next = exercises[i + 1];
+
+      if (current.supersetId && next && next.supersetId === current.supersetId) {
+        blocks.push(
+          <div key={`superset-${current.supersetId}-${i}`} className="col-span-1 md:col-span-2 flex flex-col md:grid md:grid-cols-2 relative group/superset-group mb-4 bg-[#171717] rounded-xl">
+            {ExerciseCard({ ex: current, index: i, pairStyle: "first", isGrouped: true })}
+            {ExerciseCard({ 
+              ex: next, 
+              index: i + 1, 
+              pairStyle: "second", 
+              isGrouped: true, 
+              onGroupDelete: () => setSupersetPairToDelete({ ex1: current, ex2: next }) 
+            })}
+            
+            <div className="absolute left-1/2 bottom-0 translate-x-[-50%] translate-y-[50%] z-20 pointer-events-none flex items-center justify-center">
+              <button 
+                onClick={(e) => { e.stopPropagation(); removeSupersetGroup(current.supersetId!); }}
+                className="pointer-events-auto bg-emerald-500 text-black text-[9px] sm:text-[10px] font-bold px-3 py-1.5 rounded-full shadow-2xl border border-white/30 hover:scale-110 active:scale-95 transition-all uppercase tracking-widest whitespace-nowrap flex items-center gap-2"
+              >
+                <Link size={12} />
+                Superset {current.supersetId}
+              </button>
+            </div>
+          </div>
+        );
+        i += 2;
+      } else {
+        blocks.push(
+          ExerciseCard({ ex: current, index: i, isGrouped: false })
+        );
+        i += 1;
+      }
+    }
+
+    blocks.push(
+      <button 
+        key="append-module"
+        onClick={addExercise}
+        className="border-2 border-dashed border-neutral-800 rounded-xl flex flex-col items-center justify-center p-4 hover:bg-neutral-900/50 hover:border-neutral-700 transition-all group min-h-[200px]"
+      >
+        <div className="w-10 h-10 rounded-full bg-neutral-900 flex items-center justify-center mb-3 border border-neutral-800 group-hover:scale-110 transition-transform">
+          <Plus className="text-neutral-500" />
+        </div>
+        <span className="text-[11px] font-mono text-neutral-600 uppercase">Append Module</span>
+      </button>
+    );
+
+    return blocks;
   };
 
   if (isCreating || editingPlanId) {
@@ -356,152 +645,132 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {tempPlan.exercises?.map((ex, index) => (
-            <div key={ex.id} className="bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden flex flex-col group relative">
-              
-              {activePicker === ex.id && (
-                <div className="absolute inset-0 z-50 bg-neutral-950/95 backdrop-blur-md p-4 flex flex-col animate-in fade-in zoom-in-95 duration-200">
-                  <div className="flex justify-between items-center mb-4">
-                    <span className="text-[10px] font-mono text-neutral-400 uppercase tracking-widest">Select Target Muscle</span>
-                    <button onClick={() => setActivePicker(null)} className="p-1 text-neutral-500 hover:text-white transition-colors">
-                      <X size={16} />
-                    </button>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
+          {renderExerciseBlocks()}
+        </div>
+
+        {/* Superset Pair Purge Prompt */}
+        {supersetPairToDelete && createPortal(
+          <div className="fixed inset-0 z-[160] flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/90 backdrop-blur-md animate-in fade-in duration-200" onClick={() => setSupersetPairToDelete(null)} />
+            <div className="relative bg-[#1a1a1a] border border-neutral-800 w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+              <div className="p-6 space-y-4">
+                <div className="flex items-center gap-4">
+                  <div className="p-2 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-500">
+                    <AlertTriangle size={24} />
                   </div>
-                  <div className="grid grid-cols-3 gap-2 flex-1 overflow-y-auto">
-                    {MUSCLE_GROUPS.map(group => (
-                      <button
-                        key={group}
-                        onClick={() => {
-                          updateExercise(ex.id, { muscleType: group });
-                          setActivePicker(null);
-                        }}
-                        className={`flex flex-col items-center justify-center gap-2 p-3 rounded-xl border transition-all
-                          ${ex.muscleType === group ? 'bg-neutral-100 border-neutral-100 text-black' : 'bg-neutral-900 border-neutral-800 text-neutral-500 hover:border-neutral-700'}
-                        `}
-                      >
-                        <MuscleIcon type={group} className="w-6 h-6" />
-                        <span className="text-[9px] font-bold uppercase">{group}</span>
-                      </button>
-                    ))}
+                  <div>
+                    <h2 className="text-lg font-bold text-white tracking-tight">Dismantle Modules</h2>
+                    <div className="text-[9px] font-mono text-neutral-600 uppercase tracking-widest mt-0.5">Dual Module Purge Selection</div>
                   </div>
                 </div>
-              )}
-
-              <div className="relative h-40 bg-black/40 flex items-center justify-center overflow-hidden">
-                {ex.image ? (
-                  <img src={ex.image} alt={ex.name} className="w-full h-full object-cover opacity-60" />
-                ) : (
-                  <div className="flex flex-col items-center gap-2 opacity-20">
-                    <MuscleIcon type={ex.muscleType} className="w-12 h-12" />
-                  </div>
-                )}
-                
-                <div className="absolute top-2 right-2 flex gap-1">
-                  <div className="bg-neutral-900/80 p-2 rounded-lg border border-neutral-800 text-white">
-                    <MuscleIcon type={ex.muscleType} className="w-4 h-4" />
-                  </div>
-                </div>
-
-                <label className="absolute bottom-2 right-2 bg-black/60 p-2 rounded-full cursor-pointer hover:bg-black transition-colors border border-neutral-800">
-                  <Plus size={16} className="text-neutral-400" />
-                  <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(ex.id, e)} />
-                </label>
-                <div className="absolute top-2 left-2 bg-neutral-900/80 px-2 py-1 rounded text-[10px] font-mono text-neutral-500 border border-neutral-800">
-                  EX-{index + 1}
+                <p className="text-sm text-neutral-400">Select the training module you wish to purge from the current blueprint.</p>
+                <div className="flex flex-col gap-2 pt-2">
+                  <button 
+                    onClick={() => { removeExercise(supersetPairToDelete.ex1.id); setSupersetPairToDelete(null); }}
+                    className="w-full py-3 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl transition-all uppercase text-xs tracking-widest"
+                  >
+                    Purge Module ({supersetPairToDelete.ex1.name})
+                  </button>
+                  <button 
+                    onClick={() => { removeExercise(supersetPairToDelete.ex2.id); setSupersetPairToDelete(null); }}
+                    className="w-full py-3 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl transition-all uppercase text-xs tracking-widest"
+                  >
+                    Purge Module ({supersetPairToDelete.ex2.name})
+                  </button>
+                  <button 
+                    onClick={() => setSupersetPairToDelete(null)}
+                    className="w-full py-3 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-400 font-bold rounded-xl transition-all uppercase text-xs tracking-widest"
+                  >
+                    Cancel
+                  </button>
                 </div>
               </div>
+            </div>
+          </div>,
+          document.body
+        )}
 
-              <div className="p-4 space-y-4 flex-1">
-                <input 
-                  type="text"
-                  value={ex.name}
-                  onFocus={(e) => e.target.select()}
-                  onChange={(e) => updateExercise(ex.id, { name: e.target.value })}
-                  className="bg-transparent border-none p-0 text-sm font-bold text-white w-full focus:ring-0 mb-1"
-                />
-                
-                <div className="grid grid-cols-[1.5fr_0.85fr_0.85fr_0.85fr] md:grid-cols-2 gap-2 items-end">
-                  {/* Muscle Picker */}
-                  <div className="space-y-1 relative">
-                    <span className="text-[9px] font-mono text-neutral-600 uppercase block truncate">Muscle</span>
+        {/* Image Management Popup - Refactored to match ConfirmationModal style */}
+        {viewingImageExId && createPortal(
+          <div className="fixed inset-0 z-[150] flex items-center justify-center p-4">
+            <div 
+              className="absolute inset-0 bg-black/90 backdrop-blur-md animate-in fade-in duration-200" 
+              onClick={() => setViewingImageExId(null)} 
+            />
+            <div className="relative bg-[#1a1a1a] border border-neutral-800 w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+              <div className="p-6 space-y-4">
+                <div className="flex items-center gap-4">
+                  <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-500">
+                    <ImageControlIcon size={24} />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold text-white tracking-tight">Visual Asset</h2>
+                    <div className="text-[9px] font-mono text-neutral-600 uppercase tracking-widest mt-0.5">Media Component Active</div>
+                  </div>
+                </div>
+
+                <div className="w-full aspect-square bg-neutral-950 border border-neutral-800 rounded-xl overflow-hidden flex items-center justify-center">
+                  {currentViewingEx?.image ? (
+                    <img src={currentViewingEx.image} alt="Exercise Reference" className="w-full h-full object-contain" />
+                  ) : (
+                    <div className="flex flex-col items-center gap-4 opacity-20">
+                      <ImageIcon size={48} />
+                      <span className="text-[10px] font-mono uppercase tracking-widest">No Asset Loaded</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex flex-col gap-2 pt-2">
+                  <button 
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full py-3 bg-neutral-100 hover:bg-white text-black font-bold rounded-xl transition-all active:scale-95 uppercase text-xs tracking-widest flex items-center justify-center gap-2"
+                  >
+                    <Upload size={16} />
+                    {currentViewingEx?.image ? 'Replace Asset' : 'Upload Asset'}
+                  </button>
+                  
+                  {currentViewingEx?.image && (
                     <button 
-                      onClick={() => setActivePicker(ex.id)}
-                      className="flex items-center justify-center bg-neutral-950 border border-neutral-800 rounded-lg h-10 sm:h-11 px-1 text-[11px] w-full hover:border-neutral-600 transition-all active:scale-95 group/btn"
+                      onClick={() => {
+                        if (viewingImageExId) {
+                          updateExercise(viewingImageExId, { image: undefined });
+                          setViewingImageExId(null);
+                        }
+                      }}
+                      className="w-full py-3 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl transition-all active:scale-95 uppercase text-xs tracking-widest flex items-center justify-center gap-2"
                     >
-                      <span className="truncate">{ex.muscleType}</span>
+                      <Trash2 size={16} />
+                      Purge Asset
                     </button>
-                  </div>
+                  )}
 
-                  {/* Weight */}
-                  <div className="space-y-1">
-                    <span className="text-[9px] font-mono text-neutral-600 uppercase block truncate">KG</span>
-                    <input 
-                      type="text"
-                      inputMode="decimal"
-                      value={inputStates[`${ex.id}-weight`] ?? (ex.weight === 0 ? '' : ex.weight.toString())}
-                      onFocus={(e) => e.target.select()}
-                      onChange={(e) => updateNumericField(ex.id, 'weight', e.target.value)}
-                      className="bg-neutral-950 border border-neutral-800 rounded-lg h-10 sm:h-11 px-2 text-[11px] w-full focus:border-neutral-600 outline-none text-center transition-all"
-                    />
-                  </div>
-
-                  {/* Sets */}
-                  <div className="space-y-1">
-                    <span className="text-[9px] font-mono text-neutral-600 uppercase block truncate">Sets</span>
-                    <input 
-                      type="text"
-                      inputMode="decimal"
-                      value={inputStates[`${ex.id}-sets`] ?? (ex.sets === 0 ? '' : ex.sets.toString())}
-                      onFocus={(e) => e.target.select()}
-                      onChange={(e) => updateNumericField(ex.id, 'sets', e.target.value)}
-                      className="bg-neutral-950 border border-neutral-800 rounded-lg h-10 sm:h-11 px-2 text-[11px] w-full focus:border-neutral-600 outline-none text-center transition-all"
-                    />
-                  </div>
-
-                  {/* Reps */}
-                  <div className="space-y-1">
-                    <span className="text-[9px] font-mono text-neutral-600 uppercase block truncate">Reps</span>
-                    <input 
-                      type="text"
-                      inputMode="decimal"
-                      value={inputStates[`${ex.id}-reps`] ?? ex.reps}
-                      onFocus={(e) => e.target.select()}
-                      onChange={(e) => updateNumericField(ex.id, 'reps', e.target.value)}
-                      className="bg-neutral-950 border border-neutral-800 rounded-lg h-10 sm:h-11 px-2 text-[11px] w-full focus:border-neutral-600 outline-none text-center transition-all"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-1">
-                  <span className="text-[10px] font-mono text-neutral-600 uppercase">Notes</span>
-                  <textarea 
-                    value={ex.notes}
-                    onChange={(e) => updateExercise(ex.id, { notes: e.target.value })}
-                    className="bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-[11px] w-full focus:border-neutral-700 outline-none min-h-[60px] leading-relaxed"
-                    placeholder="Tempo, cues, specific setup..."
-                  />
+                  <button 
+                    onClick={() => setViewingImageExId(null)}
+                    className="w-full py-3 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-400 font-bold rounded-xl transition-all uppercase text-xs tracking-widest"
+                  >
+                    Close
+                  </button>
                 </div>
               </div>
-
-              <div className="p-3 border-t border-neutral-800 flex justify-end">
-                <button onClick={() => setExerciseToDeleteId(ex.id)} className="text-neutral-600 hover:text-rose-500 transition-colors p-1">
-                  <Trash2 size={14} />
+              
+              <div className="absolute top-2 right-2">
+                <button onClick={() => setViewingImageExId(null)} className="p-2 hover:bg-white/5 rounded-full transition-colors">
+                  <X size={16} className="text-neutral-600" />
                 </button>
               </div>
-            </div>
-          ))}
 
-          <button 
-            onClick={addExercise}
-            className="border-2 border-dashed border-neutral-800 rounded-xl flex flex-col items-center justify-center p-8 hover:bg-neutral-900/50 hover:border-neutral-700 transition-all group min-h-[300px]"
-          >
-            <div className="w-12 h-12 rounded-full bg-neutral-900 flex items-center justify-center mb-4 border border-neutral-800 group-hover:scale-110 transition-transform">
-              <Plus className="text-neutral-500" />
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                className="hidden" 
+                accept="image/*" 
+                onChange={(e) => viewingImageExId && handleImageUpload(viewingImageExId, e)} 
+              />
             </div>
-            <span className="text-sm font-mono text-neutral-600 uppercase">Append Module</span>
-          </button>
-        </div>
+          </div>,
+          document.body
+        )}
 
         <ConfirmationModal 
           isOpen={!!exerciseToDeleteId}
