@@ -157,10 +157,33 @@ const App: React.FC = () => {
         folderId = createData.id;
       }
 
+      // Ensure 'syncs' subfolder exists
+      let syncsFolderId;
+      const q_syncs = encodeURIComponent(`name = 'syncs' and '${folderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`);
+      const listSyncsResponse = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q_syncs}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const syncsData = await listSyncsResponse.json();
+      syncsFolderId = syncsData.files?.[0]?.id;
+
+      if (!syncsFolderId) {
+        const createSyncsResponse = await fetch('https://www.googleapis.com/drive/v3/files', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            name: 'syncs', 
+            mimeType: 'application/vnd.google-apps.folder',
+            parents: [folderId]
+          }),
+        });
+        const createSyncsData = await createSyncsResponse.json();
+        syncsFolderId = createSyncsData.id;
+      }
+
       const ts = Date.now();
       const syncName = `sync.${format(new Date(ts), 'ss.mm.HH.dd.MM.yyyy')}.json`;
       const manifest = { version: '1.7', timestamp: ts, data: { entries: currentEntries, plans: currentPlans } };
-      const metadata = { name: syncName, mimeType: 'application/json', parents: [folderId] };
+      const metadata = { name: syncName, mimeType: 'application/json', parents: [syncsFolderId] };
 
       const form = new FormData();
       form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
@@ -180,7 +203,7 @@ const App: React.FC = () => {
 
         // Cleanup: Limit to 20 latest sync files
         try {
-          const q_cleanup = encodeURIComponent(`'${folderId}' in parents and name contains "sync." and trashed = false`);
+          const q_cleanup = encodeURIComponent(`'${syncsFolderId}' in parents and name contains "sync." and trashed = false`);
           const listFilesResponse = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q_cleanup}&orderBy=createdTime desc&fields=files(id, name, createdTime)`, {
             headers: { Authorization: `Bearer ${token}` },
           });
@@ -233,7 +256,20 @@ const App: React.FC = () => {
         return;
       }
 
-      const q_files = encodeURIComponent(`'${folderId}' in parents and name contains "sync." and trashed = false`);
+      // Check 'syncs' subfolder
+      const q_syncs = encodeURIComponent(`name = 'syncs' and '${folderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`);
+      const listSyncsResponse = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q_syncs}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const syncsData = await listSyncsResponse.json();
+      const syncsFolderId = syncsData.files?.[0]?.id;
+      if (!syncsFolderId) {
+        setSyncStatus('idle');
+        setHasImported(true);
+        return;
+      }
+
+      const q_files = encodeURIComponent(`'${syncsFolderId}' in parents and name contains "sync." and trashed = false`);
       const listFilesResponse = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q_files}&orderBy=createdTime desc&pageSize=1&fields=files(id, name, createdTime)`, {
         headers: { Authorization: `Bearer ${token}` },
       });

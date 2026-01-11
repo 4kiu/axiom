@@ -141,7 +141,21 @@ const UtilitiesPanel: React.FC<UtilitiesPanelProps> = ({
         setLocalSyncStatus('idle');
         return;
       }
-      const q = encodeURIComponent(`'${folderId}' in parents and name contains "sync." and trashed = false`);
+
+      // Look in 'syncs' subfolder
+      const q_syncs = encodeURIComponent(`name = 'syncs' and '${folderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`);
+      const listSyncs = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q_syncs}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const syncsData = await listSyncs.json();
+      const syncsFolderId = syncsData.files?.[0]?.id;
+      if (!syncsFolderId) {
+        setAuthError("No 'syncs' subfolder found.");
+        setLocalSyncStatus('idle');
+        return;
+      }
+
+      const q = encodeURIComponent(`'${syncsFolderId}' in parents and name contains "sync." and trashed = false`);
       const listResponse = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
@@ -159,7 +173,7 @@ const UtilitiesPanel: React.FC<UtilitiesPanelProps> = ({
           setTimeout(() => setLocalSyncStatus('idle'), 2000);
         }
       } else {
-        setAuthError("No sync manifests found.");
+        setAuthError("No sync manifests found in 'syncs' folder.");
         setLocalSyncStatus('idle');
       }
     } catch (e: any) {
