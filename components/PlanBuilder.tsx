@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { WorkoutPlan, Exercise } from '../types';
@@ -21,9 +20,39 @@ import {
   Image as ImageControlIcon,
   Search,
   Library,
-  Loader2,
-  RefreshCw
+  Loader2
 } from 'lucide-react';
+
+// Auto-expanding textarea component to replace fixed-height inputs
+const AutoExpandingTextarea: React.FC<React.TextareaHTMLAttributes<HTMLTextAreaElement>> = ({ className, ...props }) => {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const adjustHeight = () => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = 'auto';
+      textarea.style.height = `${textarea.scrollHeight}px`;
+    }
+  };
+
+  useEffect(() => {
+    adjustHeight();
+  }, [props.value]);
+
+  return (
+    <textarea
+      {...props}
+      ref={textareaRef}
+      rows={props.rows || 1}
+      onChange={(e) => {
+        props.onChange?.(e);
+        adjustHeight();
+      }}
+      className={className}
+      style={{ ...props.style, overflow: 'hidden', resize: 'none' }}
+    />
+  );
+};
 
 // Custom SVG Icons for Muscle Groups
 export const MuscleIcon: React.FC<{ type: string, className?: string }> = ({ type, className = "w-5 h-5" }) => {
@@ -125,6 +154,7 @@ interface DriveImage {
   id: string;
   name: string;
   thumbnailLink?: string;
+  directUrl?: string;
 }
 
 interface PlanBuilderProps {
@@ -163,6 +193,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
   const [libraryImages, setLibraryImages] = useState<DriveImage[]>([]);
   const [librarySearch, setLibrarySearch] = useState('');
   const [loadingLibrary, setLoadingLibrary] = useState(false);
+  const [expandedNotes, setExpandedNotes] = useState<Record<string, boolean>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [tempPlan, setTempPlan] = useState<Partial<WorkoutPlan>>({
@@ -183,6 +214,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
         setIsCreating(false);
         setEditingPlanId(null);
         setInputStates({});
+        setExpandedNotes({});
         initialPlanRef.current = null;
       } else {
         // If external says editing but internal doesn't have plan yet, populate it
@@ -281,9 +313,16 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
   };
 
   const updateExercise = (exerciseId: string, updates: Partial<Exercise>) => {
+    const processedUpdates = { ...updates };
+    if (processedUpdates.name) {
+      processedUpdates.name = processedUpdates.name
+        .split(' ')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
+    }
     setTempPlan(prev => ({
       ...prev,
-      exercises: prev.exercises?.map(ex => ex.id === exerciseId ? { ...ex, ...updates } : ex)
+      exercises: prev.exercises?.map(ex => ex.id === exerciseId ? { ...ex, ...processedUpdates } : ex)
     }));
   };
 
@@ -436,23 +475,94 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
   };
 
   const fetchLibraryImages = async () => {
-    if (!accessToken) return;
+    const staticAssets: DriveImage[] = [
+      {
+        id: 'cloudinary-reverse-fly',
+        name: 'Cable Reverse Fly',
+        thumbnailLink: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768244056/Cable_Reverse_Fly_szw2uz.png',
+        directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768244056/Cable_Reverse_Fly_szw2uz.png'
+      },
+      {
+        id: 'cloudinary-pullups',
+        name: 'Pullups',
+        thumbnailLink: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768244056/Pullups_z868pq.png',
+        directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768244056/Pullups_z868pq.png'
+      },
+      {
+        id: 'cloudinary-bench-press',
+        name: 'Bench Press',
+        thumbnailLink: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768244056/Bench_Press_wjxo9b.png',
+        directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768244056/Bench_Press_wjxo9b.png'
+      },
+      {
+        id: 'cloudinary-cable-front-raise',
+        name: 'Cable Front Raise',
+        thumbnailLink: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768244056/Cable_Front_Raise_taaufh.png',
+        directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768244056/Cable_Front_Raise_taaufh.png'
+      },
+      {
+        id: 'cloudinary-seated-row',
+        name: 'Seated Row',
+        thumbnailLink: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768244057/Seated_Row_gchjcv.png',
+        directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768244057/Seated_Row_gchjcv.png'
+      },
+      {
+        id: 'cloudinary-incline-bench-press',
+        name: 'Incline Bench Press',
+        thumbnailLink: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768244057/Incline_Bench_Press_y43x5k.png',
+        directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768244057/Incline_Bench_Press_y43x5k.png'
+      },
+      {
+        id: 'cloudinary-machine-lateral-raise',
+        name: 'Machine Lateral Raise',
+        thumbnailLink: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768244057/Machine_Lateral_Raise_he5jr7.png',
+        directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768244057/Machine_Lateral_Raise_he5jr7.png'
+      },
+      {
+        id: 'cloudinary-incline-chest-press',
+        name: 'Incline Chest Press',
+        thumbnailLink: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768245133/Incline_Chest_Press_hho3fc.png',
+        directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768245133/Incline_Chest_Press_hho3fc.png'
+      }
+    ];
+
+    if (!accessToken) {
+      setLibraryImages(staticAssets);
+      return;
+    }
+
     setLoadingLibrary(true);
     try {
+      const sharedFolderId = '1byvUDQYBqShPdqL87ZfBG_oxpnwfrt8e';
       const axiomId = await findOrCreateFolder('Axiom');
       const libraryId = await findOrCreateFolder('library', axiomId);
-      // Removed mimeType filtering to allow manually uploaded images with potentially generic mime types to be indexed
-      const q = encodeURIComponent(`'${libraryId}' in parents and trashed = false`);
-      const response = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,thumbnailLink,mimeType)&pageSize=100`, {
+
+      // Fetch user's private library
+      const qPrivate = encodeURIComponent(`'${libraryId}' in parents and mimeType contains 'image/' and trashed = false`);
+      const responsePrivate = await fetch(`https://www.googleapis.com/drive/v3/files?q=${qPrivate}&fields=files(id,name,thumbnailLink)&pageSize=50`, {
         headers: { Authorization: `Bearer ${accessToken}` }
       });
-      const data = await response.json();
-      // Filter images based on name extension or generic image mimeType
-      const images = (data.files || []).filter((f: any) => 
-        f.mimeType?.includes('image/') || 
-        /\.(jpg|jpeg|png|gif|webp)$/i.test(f.name)
+      const dataPrivate = await responsePrivate.json();
+
+      // Fetch shared folder content
+      const qShared = encodeURIComponent(`'${sharedFolderId}' in parents and mimeType contains 'image/' and trashed = false`);
+      const responseShared = await fetch(`https://www.googleapis.com/drive/v3/files?q=${qShared}&fields=files(id,name,thumbnailLink)&pageSize=100&supportsAllDrives=true&includeItemsFromAllDrives=true`, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      const dataShared = await responseShared.json();
+
+      const combinedFiles = [
+        ...staticAssets,
+        ...(dataPrivate.files || []),
+        ...(dataShared.files || [])
+      ];
+
+      // Remove duplicates by ID
+      const uniqueFiles = combinedFiles.filter((file, index, self) =>
+        index === self.findIndex((f) => f.id === file.id)
       );
-      setLibraryImages(images);
+
+      setLibraryImages(uniqueFiles);
     } catch (err) {
       console.error('Library fetch failed:', err);
     } finally {
@@ -525,7 +635,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                       <X size={16} />
                     </button>
                   </div>
-                  <div className="grid grid-cols-3 gap-2 flex-1 overflow-y-auto pr-1">
+                  <div className="grid grid-cols-4 gap-1.5 flex-1 overflow-y-auto pr-1">
                     {MUSCLE_GROUPS.map(group => (
                       <button
                         key={group}
@@ -533,11 +643,11 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                           updateExercise(ex.id, { muscleType: group });
                           setActivePicker(null);
                         }}
-                        className={`flex flex-col items-center justify-center gap-1.5 p-2 rounded-xl border transition-all
+                        className={`flex flex-col items-center justify-center gap-1 p-1.5 rounded-xl border transition-all
                           ${ex.muscleType === group ? 'bg-neutral-100 border-neutral-100 text-black' : 'bg-neutral-900 border-neutral-800 text-neutral-500 hover:border-neutral-700'}
                         `}
                       >
-                        <MuscleIcon type={group} className="w-5 h-5" />
+                        <MuscleIcon type={group} className="w-4 h-4" />
                         <span className="text-[8px] font-bold uppercase">{group}</span>
                       </button>
                     ))}
@@ -639,29 +749,38 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                 </div>
               </div>
 
-              {/* Notes Area - Standardized spacing matched with internal grid gaps */}
-              <div className="px-3 pb-3 space-y-2">
-                <div className="space-y-0.5">
-                  <span className="text-[8px] font-mono text-neutral-700 uppercase">Notes</span>
-                  <textarea 
-                    value={ex.notes}
-                    onChange={(e) => updateExercise(ex.id, { notes: e.target.value })}
-                    className="bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1.5 text-[10px] w-full focus:border-neutral-700 outline-none min-h-[44px] max-h-[80px] leading-snug"
-                    placeholder="Tempo, cues..."
-                  />
+              {/* Conditional Notes Area */}
+              {expandedNotes[ex.id] && (
+                <div className="px-3 pb-3 space-y-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                  <div className="space-y-0.5">
+                    <span className="text-[8px] font-mono text-neutral-700 uppercase">Notes</span>
+                    <AutoExpandingTextarea 
+                      value={ex.notes}
+                      onChange={(e) => updateExercise(ex.id, { notes: e.target.value })}
+                      className="bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1.5 text-[10px] w-full focus:border-neutral-700 outline-none min-h-[44px] leading-snug"
+                      placeholder="Tempo, cues..."
+                    />
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Footer */}
               <div className="p-2 border-t border-neutral-800/50 flex justify-end gap-2 items-center bg-black/10">
                 <button 
                   onClick={() => toggleSuperset(ex.id)} 
-                  className={`p-1 rounded-md border flex items-center gap-1 transition-all ${ex.supersetId ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500' : 'bg-neutral-800 border-neutral-700 text-neutral-500'}`}
+                  className={`p-1 h-6 rounded-md border flex items-center gap-1 transition-all ${ex.supersetId ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500' : 'bg-neutral-800 border-neutral-700 text-neutral-500'}`}
                 >
                   <Link size={12} />
-                  {ex.supersetId && <span className="text-[9px] font-bold">{ex.supersetId}</span>}
+                  {ex.supersetId && <span className="text-[9px] font-bold leading-none">{ex.supersetId}</span>}
                 </button>
-                <button onClick={() => setExerciseToDeleteId(ex.id)} className="text-neutral-600 hover:text-rose-500 transition-colors p-1">
+                <button 
+                  onClick={() => setExpandedNotes(prev => ({ ...prev, [ex.id]: !prev[ex.id] }))} 
+                  title="Toggle Notes"
+                  className={`p-1 h-6 rounded-md border flex items-center gap-1 transition-all ${expandedNotes[ex.id] ? 'bg-neutral-100 border-neutral-100 text-black' : 'bg-neutral-800 border-neutral-700 text-neutral-500'}`}
+                >
+                  <FileText size={12} />
+                </button>
+                <button onClick={() => setExerciseToDeleteId(ex.id)} className="text-neutral-600 hover:text-rose-500 transition-colors p-1 h-6 flex items-center">
                   <Trash2 size={13} />
                 </button>
               </div>
@@ -698,16 +817,11 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                       <div className="text-[9px] font-mono text-neutral-600 uppercase tracking-widest mt-0.5">{isLibraryOpen ? 'root/library/' : 'Media Component Active'}</div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    {isLibraryOpen && (
-                      <button onClick={fetchLibraryImages} className="p-2 text-neutral-500 hover:text-white transition-colors" title="Refresh Library">
-                        <RefreshCw size={18} className={loadingLibrary ? 'animate-spin' : ''} />
-                      </button>
-                    )}
-                    <button onClick={() => { setViewingImageExId(null); setIsLibraryOpen(false); }} className="p-2 text-neutral-500 hover:text-white transition-colors">
+                  {isLibraryOpen && (
+                    <button onClick={() => setIsLibraryOpen(false)} className="p-2 text-neutral-500 hover:text-white transition-colors">
                       <X size={20} />
                     </button>
-                  </div>
+                  )}
                 </div>
 
                 {!isLibraryOpen ? (
@@ -785,7 +899,8 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                             key={img.id}
                             onClick={() => {
                               if (viewingImageExId) {
-                                updateExercise(viewingImageExId, { image: `https://www.googleapis.com/drive/v3/files/${img.id}?alt=media` });
+                                const imgUrl = img.directUrl || `https://www.googleapis.com/drive/v3/files/${img.id}?alt=media`;
+                                updateExercise(viewingImageExId, { image: imgUrl });
                                 setIsLibraryOpen(false);
                                 setViewingImageExId(null);
                               }
@@ -809,6 +924,14 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                   </div>
                 )}
               </div>
+              
+              {!isLibraryOpen && (
+                <div className="absolute top-2 right-2">
+                  <button onClick={() => setViewingImageExId(null)} className="p-2 hover:bg-white/5 rounded-full transition-colors">
+                    <X size={16} className="text-neutral-600" />
+                  </button>
+                </div>
+              )}
 
               <input 
                 type="file" 

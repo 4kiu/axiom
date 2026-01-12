@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   IdentityState, 
   WorkoutEntry, 
@@ -21,6 +22,37 @@ import {
 } from 'lucide-react';
 import { isSameDay, format } from 'date-fns';
 import { MuscleIcon } from './PlanBuilder.tsx';
+
+// Auto-expanding textarea component
+const AutoExpandingTextarea: React.FC<React.TextareaHTMLAttributes<HTMLTextAreaElement>> = ({ className, ...props }) => {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const adjustHeight = () => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = 'auto';
+      textarea.style.height = `${textarea.scrollHeight}px`;
+    }
+  };
+
+  useEffect(() => {
+    adjustHeight();
+  }, [props.value]);
+
+  return (
+    <textarea
+      {...props}
+      ref={textareaRef}
+      rows={props.rows || 1}
+      onChange={(e) => {
+        props.onChange?.(e);
+        adjustHeight();
+      }}
+      className={className}
+      style={{ ...props.style, overflow: 'hidden', resize: 'none' }}
+    />
+  );
+};
 
 // Local implementation of subDays as it was missing from date-fns export
 const subDays = (date: Date | number, amount: number) => {
@@ -297,7 +329,7 @@ const LogAction: React.FC<LogActionProps> = ({
 
         <section>
           <label className="text-[10px] font-mono text-neutral-500 uppercase tracking-widest block mb-3">Notes / Logs</label>
-          <textarea 
+          <AutoExpandingTextarea 
             className="w-full bg-white/5 border border-neutral-800 rounded-xl p-4 text-sm text-neutral-200 focus:outline-none focus:border-neutral-600 min-h-[100px] placeholder-neutral-700 font-sans"
             placeholder="Document technical patterns or fatigue specifics..."
             value={notes}
