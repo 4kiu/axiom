@@ -106,7 +106,7 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
 
         const client = google.accounts.oauth2.initTokenClient({
           client_id: clientId,
-          scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
+          scope: 'https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
           callback: (response: any) => {
             if (response.access_token) {
               const token = response.access_token;
