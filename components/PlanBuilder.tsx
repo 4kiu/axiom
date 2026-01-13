@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { WorkoutPlan, Exercise } from '../types';
@@ -206,6 +207,20 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
 
   // Intermediate input state to handle typing decimals naturally
   const [inputStates, setInputStates] = useState<Record<string, string>>({});
+
+  // Helper function to get correct image source with potential token
+  const getSafeImageSrc = (url: string | undefined) => {
+    if (!url) return undefined;
+    if (!url.startsWith('http')) return url;
+    
+    // Only append access_token if it's a Google Drive URL and we have a token
+    const isDriveUrl = url.includes('googleapis.com/drive');
+    if (isDriveUrl && accessToken) {
+      const separator = url.includes('?') ? '&' : '?';
+      return `${url}${separator}access_token=${accessToken}`;
+    }
+    return url;
+  };
 
   // Synchronize internal state with external navigation state for back-gesture support
   useEffect(() => {
@@ -643,7 +658,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                           updateExercise(ex.id, { muscleType: group });
                           setActivePicker(null);
                         }}
-                        className={`flex flex-col items-center justify-center gap-1 p-1.5 rounded-xl border transition-all
+                        className={`flex flex-col items-center justify-center gap-0.5 p-1 rounded-xl border transition-all
                           ${ex.muscleType === group ? 'bg-neutral-100 border-neutral-100 text-black' : 'bg-neutral-900 border-neutral-800 text-neutral-500 hover:border-neutral-700'}
                         `}
                       >
@@ -665,12 +680,12 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                   >
                     {ex.image ? (
                       <img 
-                        src={ex.image.startsWith('http') && accessToken ? `${ex.image}&access_token=${accessToken}` : ex.image} 
+                        src={getSafeImageSrc(ex.image)} 
                         alt={ex.name} 
                         className="w-full h-full object-cover opacity-60 group-hover/img:opacity-80 transition-opacity" 
                         onError={(e) => {
-                          // If private link failed, show placeholder
-                          (e.target as HTMLImageElement).style.display = 'none';
+                          // Log error privately if needed, but only hide if we're sure it's broken
+                          console.debug('Image load failed for:', ex.name);
                         }}
                       />
                     ) : (
@@ -829,7 +844,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                     <div className="w-full aspect-square bg-neutral-950 border border-neutral-800 rounded-xl overflow-hidden flex items-center justify-center">
                       {currentViewingEx?.image ? (
                         <img 
-                          src={currentViewingEx.image.startsWith('http') && accessToken ? `${currentViewingEx.image}&access_token=${accessToken}` : currentViewingEx.image} 
+                          src={getSafeImageSrc(currentViewingEx.image)} 
                           alt="Exercise Reference" 
                           className="w-full h-full object-contain" 
                         />
