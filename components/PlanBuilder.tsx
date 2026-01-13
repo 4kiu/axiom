@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { WorkoutPlan, Exercise } from '../types';
 import ConfirmationModal from './ConfirmationModal.tsx';
@@ -23,6 +23,84 @@ import {
   Library,
   Loader2
 } from 'lucide-react';
+
+// Component to handle authenticated Drive image loading via blob fetch
+const SafeImage: React.FC<{ 
+  src: string | undefined, 
+  alt: string, 
+  accessToken?: string | null,
+  className?: string
+}> = ({ src, alt, accessToken, className }) => {
+  const [blobUrl, setBlobUrl] = useState<string | undefined>();
+  const [error, setError] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!src) {
+      setBlobUrl(undefined);
+      return;
+    }
+
+    // If it's not a Google Drive URL, use it directly (base64 or public CDN)
+    const isDriveUrl = src.includes('googleapis.com/drive');
+    if (!isDriveUrl || !accessToken) {
+      setBlobUrl(src);
+      return;
+    }
+
+    let isMounted = true;
+    const fetchImage = async () => {
+      setLoading(true);
+      setError(false);
+      try {
+        // Use standard Bearer token for better compatibility with current Drive API security
+        const response = await fetch(src, {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        });
+        if (!response.ok) throw new Error('Axiom Trace: Image fetch rejected');
+        const blob = await response.blob();
+        if (isMounted) {
+          const url = URL.createObjectURL(blob);
+          setBlobUrl(url);
+        }
+      } catch (err) {
+        if (isMounted) setError(true);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+
+    fetchImage();
+
+    return () => {
+      isMounted = false;
+      if (blobUrl && blobUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(blobUrl);
+      }
+    };
+  }, [src, accessToken]);
+
+  if (!src) return null;
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-2 opacity-20 w-full h-full">
+        <ImageIcon size={32} />
+        <span className="text-[8px] font-mono">ASSET_LINK_FAIL</span>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center w-full h-full">
+        <Loader2 className="animate-spin text-neutral-700" size={24} />
+      </div>
+    );
+  }
+
+  return <img src={blobUrl} alt={alt} className={className} />;
+};
 
 // Auto-expanding textarea component to replace fixed-height inputs
 const AutoExpandingTextarea: React.FC<React.TextareaHTMLAttributes<HTMLTextAreaElement>> = ({ className, ...props }) => {
@@ -207,20 +285,6 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
 
   // Intermediate input state to handle typing decimals naturally
   const [inputStates, setInputStates] = useState<Record<string, string>>({});
-
-  // Helper function to get correct image source with potential token
-  const getSafeImageSrc = (url: string | undefined) => {
-    if (!url) return undefined;
-    if (!url.startsWith('http')) return url;
-    
-    // Only append access_token if it's a Google Drive URL and we have a token
-    const isDriveUrl = url.includes('googleapis.com/drive');
-    if (isDriveUrl && accessToken) {
-      const separator = url.includes('?') ? '&' : '?';
-      return `${url}${separator}access_token=${accessToken}`;
-    }
-    return url;
-  };
 
   // Synchronize internal state with external navigation state for back-gesture support
   useEffect(() => {
@@ -687,21 +751,12 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                     onClick={() => setViewingImageExId(ex.id)}
                     className="relative w-full h-full sm:h-auto sm:aspect-square bg-neutral-950 border border-neutral-800 rounded-lg flex items-center justify-center overflow-hidden cursor-pointer hover:border-neutral-700 transition-all group/img"
                   >
-                    {ex.image ? (
-                      <img 
-                        src={getSafeImageSrc(ex.image)} 
-                        alt={ex.name} 
-                        className="w-full h-full object-cover opacity-60 group-hover/img:opacity-80 transition-opacity" 
-                        onError={(e) => {
-                          console.debug('Axiom Trace: Image load failed for:', ex.name);
-                        }}
-                      />
-                    ) : (
-                      <div className="flex flex-col items-center justify-center gap-2 opacity-20 group-hover/img:opacity-40 transition-opacity w-full h-full">
-                        <MuscleIcon type={ex.muscleType} className="w-8 h-8 sm:w-12 sm:h-12" />
-                        <span className="text-[8px] font-mono">NO IMAGE</span>
-                      </div>
-                    )}
+                    <SafeImage 
+                      src={ex.image} 
+                      alt={ex.name} 
+                      accessToken={accessToken}
+                      className="w-full h-full object-cover opacity-60 group-hover/img:opacity-80 transition-opacity"
+                    />
                     
                     <div className="absolute top-1.5 left-1.5 bg-black/40 px-1 py-0.5 rounded text-[8px] font-mono text-neutral-500 border border-neutral-800/50">
                       EX-{index + 1}
@@ -850,18 +905,12 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                 {!isLibraryOpen ? (
                   <>
                     <div className="w-full aspect-square bg-neutral-950 border border-neutral-800 rounded-xl overflow-hidden flex items-center justify-center">
-                      {currentViewingEx?.image ? (
-                        <img 
-                          src={getSafeImageSrc(currentViewingEx.image)} 
-                          alt="Exercise Reference" 
-                          className="w-full h-full object-contain" 
-                        />
-                      ) : (
-                        <div className="flex flex-col items-center gap-4 opacity-20">
-                          <ImageIcon size={48} />
-                          <span className="text-[10px] font-mono uppercase tracking-widest">No Asset Loaded</span>
-                        </div>
-                      )}
+                      <SafeImage 
+                        src={currentViewingEx?.image} 
+                        alt="Exercise Reference" 
+                        accessToken={accessToken}
+                        className="w-full h-full object-contain"
+                      />
                     </div>
 
                     <div className="flex flex-col gap-2 pt-2">
@@ -930,11 +979,12 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                             }}
                             className="group/item relative aspect-square bg-neutral-950 border border-neutral-800 rounded-lg overflow-hidden hover:border-emerald-500 transition-all"
                           >
-                            {img.thumbnailLink ? (
-                              <img src={getSafeImageSrc(img.thumbnailLink)} alt={img.name} className="w-full h-full object-cover opacity-60 group-hover/item:opacity-100 transition-opacity" />
-                            ) : (
-                              <div className="flex items-center justify-center w-full h-full opacity-20"><ImageIcon size={24} /></div>
-                            )}
+                            <SafeImage 
+                              src={img.thumbnailLink || img.directUrl || `https://www.googleapis.com/drive/v3/files/${img.id}?alt=media`}
+                              alt={img.name}
+                              accessToken={accessToken}
+                              className="w-full h-full object-cover opacity-60 group-hover/item:opacity-100 transition-opacity"
+                            />
                             <div className="absolute bottom-0 left-0 right-0 p-1 bg-black/60 text-[7px] font-mono text-white truncate">{img.name}</div>
                           </button>
                         ))
