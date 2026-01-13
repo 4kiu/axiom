@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { WorkoutEntry, WorkoutPlan } from '../types.ts';
 import { 
@@ -9,7 +8,12 @@ import {
   DownloadCloud, 
   RefreshCw,
   Link,
-  Zap
+  Zap,
+  Timer,
+  Play,
+  Pause,
+  RotateCcw,
+  Activity
 } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -50,19 +54,98 @@ const UtilitiesPanel: React.FC<UtilitiesPanelProps> = ({
   const [customSyncName] = useState(() => `sync.${format(new Date(), 'ss.mm.HH.dd.MM.yyyy')}`);
   const [authError, setAuthError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const lastActive = localStorage.getItem('axiom_last_active_ts');
-    const now = Date.now();
-    const thirtyDaysInMs = 30 * 24 * 60 * 60 * 1000;
-
-    if (lastActive && (now - parseInt(lastActive) > thirtyDaysInMs)) {
-      handleLogout();
-    } else {
-      localStorage.setItem('axiom_last_active_ts', now.toString());
+  // Stopwatch state persisted in localStorage
+  const [stopwatch, setStopwatch] = useState(() => {
+    const active = localStorage.getItem('axiom_chrono_active') === 'true';
+    const startTimeStr = localStorage.getItem('axiom_chrono_start');
+    const elapsedStr = localStorage.getItem('axiom_chrono_elapsed');
+    
+    const startTime = startTimeStr ? parseInt(startTimeStr) : null;
+    const elapsed = elapsedStr ? parseInt(elapsedStr) : 0;
+    
+    let currentElapsed = elapsed;
+    if (active && startTime) {
+      currentElapsed = Math.floor((Date.now() - startTime) / 1000);
     }
+    
+    return { active, startTime, elapsed: currentElapsed };
+  });
+
+  useEffect(() => {
+    // Keep last active timestamp updated
+    localStorage.setItem('axiom_last_active_ts', Date.now().toString());
 
     if (accessToken && !userInfo) fetchUserInfo(accessToken);
   }, [accessToken, userInfo]);
+
+  // Stopwatch effect
+  useEffect(() => {
+    let interval: number | null = null;
+    if (stopwatch.active) {
+      interval = window.setInterval(() => {
+        setStopwatch(prev => {
+          const newElapsed = prev.startTime ? Math.floor((Date.now() - prev.startTime) / 1000) : prev.elapsed;
+          // Sync current elapsed to storage occasionally if needed, 
+          // but we mainly rely on startTime for active sessions.
+          return {
+            ...prev,
+            elapsed: newElapsed
+          };
+        });
+      }, 1000);
+    }
+    return () => { if (interval) clearInterval(interval); };
+  }, [stopwatch.active]);
+
+  const startStopwatch = () => {
+    const now = Date.now();
+    const newStart = now - (stopwatch.elapsed * 1000);
+    setStopwatch(prev => ({
+      ...prev,
+      active: true,
+      startTime: newStart
+    }));
+    localStorage.setItem('axiom_chrono_active', 'true');
+    localStorage.setItem('axiom_chrono_start', newStart.toString());
+  };
+
+  const pauseStopwatch = () => {
+    const currentElapsed = stopwatch.elapsed;
+    setStopwatch(prev => ({ 
+      ...prev, 
+      active: false,
+      startTime: null
+    }));
+    localStorage.setItem('axiom_chrono_active', 'false');
+    localStorage.setItem('axiom_chrono_elapsed', currentElapsed.toString());
+    localStorage.removeItem('axiom_chrono_start');
+  };
+
+  const resetStopwatch = () => {
+    setStopwatch({ active: false, startTime: null, elapsed: 0 });
+    localStorage.setItem('axiom_chrono_active', 'false');
+    localStorage.setItem('axiom_chrono_elapsed', '0');
+    localStorage.removeItem('axiom_chrono_start');
+  };
+
+  const formatElapsedTime = (s: number) => {
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    return {
+      h: h.toString().padStart(2, '0'),
+      m: m.toString().padStart(2, '0'),
+      s: sec.toString().padStart(2, '0')
+    };
+  };
+
+  const getRecommendedIdentity = (s: number) => {
+    const mins = s / 60;
+    if (mins >= 120) return { label: 'OVERDRIVE', color: 'text-violet-400', border: 'border-violet-500/30', bg: 'bg-violet-500/5' };
+    if (mins >= 80) return { label: 'NORMAL', color: 'text-emerald-400', border: 'border-emerald-500/30', bg: 'bg-emerald-500/5' };
+    if (mins >= 40) return { label: 'MAINTENANCE', color: 'text-amber-400', border: 'border-amber-500/30', bg: 'bg-amber-500/5' };
+    return { label: 'SURVIVAL', color: 'text-rose-400', border: 'border-rose-500/30', bg: 'bg-rose-500/5' };
+  };
 
   const fetchUserInfo = async (token: string) => {
     try {
@@ -188,8 +271,11 @@ const UtilitiesPanel: React.FC<UtilitiesPanelProps> = ({
     return customSyncName;
   };
 
+  const recommendation = getRecommendedIdentity(stopwatch.elapsed);
+  const timeObj = formatElapsedTime(stopwatch.elapsed);
+
   return (
-    <div className="space-y-8 animate-in fade-in duration-500 pb-12 sm:pb-0 max-w-2xl mx-auto">
+    <div className="space-y-8 animate-in fade-in duration-500 pb-12 sm:pb-0 max-w-5xl mx-auto">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-neutral-800 pb-4">
         <div className="flex items-center gap-4">
           <Settings className="text-neutral-400" size={28} />
@@ -200,7 +286,132 @@ const UtilitiesPanel: React.FC<UtilitiesPanelProps> = ({
         </div>
       </div>
 
-      <div className="flex flex-col gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+        {/* Stopwatch Utility Card */}
+        <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6 shadow-xl space-y-5">
+          <div className="flex justify-between items-center">
+            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+              <Timer className="text-violet-500" size={16} /> Session Chronometer
+            </h3>
+            {stopwatch.active ? (
+              <div className="flex items-center gap-1.5 px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full">
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+                </span>
+                <span className="text-[8px] font-mono text-emerald-500 uppercase font-bold tracking-widest">Tracking</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 px-2 py-0.5 bg-neutral-800 border border-neutral-700 rounded-full">
+                <span className="relative flex h-1.5 w-1.5 rounded-full bg-neutral-600"></span>
+                <span className="text-[8px] font-mono text-neutral-500 uppercase font-bold tracking-widest">Idle</span>
+              </div>
+            )}
+          </div>
+
+          <div className="relative group overflow-hidden bg-black rounded-2xl border border-neutral-800 py-8 flex flex-col items-center justify-center shadow-inner">
+            {/* Background decorative elements */}
+            <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle, #8b5cf6 1px, transparent 1px)', backgroundSize: '16px 16px' }} />
+            <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-neutral-700 to-transparent opacity-50" />
+            <div className="absolute bottom-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-neutral-700 to-transparent opacity-50" />
+            
+            {/* Calibration lines */}
+            <div className="absolute top-2 left-1/2 -translate-x-1/2 flex gap-1 items-center opacity-30">
+              <div className="w-[1px] h-1 bg-neutral-500" />
+              <div className="w-[1px] h-1 bg-neutral-500" />
+              <div className="w-[1px] h-2 bg-neutral-400" />
+              <div className="w-[1px] h-1 bg-neutral-500" />
+              <div className="w-[1px] h-1 bg-neutral-500" />
+            </div>
+
+            <div className="flex items-center gap-2 z-10">
+              <div className="flex flex-col items-center">
+                <div className={`text-5xl font-mono font-black tracking-tighter transition-all duration-300 ${stopwatch.active ? 'text-violet-400 drop-shadow-[0_0_8px_rgba(167,139,250,0.5)]' : 'text-neutral-400'}`}>
+                  {timeObj.h}
+                </div>
+                <div className="text-[8px] font-mono text-neutral-600 uppercase tracking-widest font-bold mt-1">HRS</div>
+              </div>
+              
+              <div className={`text-4xl font-mono font-bold transition-opacity duration-500 ${stopwatch.active ? 'opacity-100 text-violet-500 animate-pulse' : 'opacity-30 text-neutral-600'}`}>:</div>
+              
+              <div className="flex flex-col items-center">
+                <div className={`text-5xl font-mono font-black tracking-tighter transition-all duration-300 ${stopwatch.active ? 'text-violet-400 drop-shadow-[0_0_8px_rgba(167,139,250,0.5)]' : 'text-neutral-400'}`}>
+                  {timeObj.m}
+                </div>
+                <div className="text-[8px] font-mono text-neutral-600 uppercase tracking-widest font-bold mt-1">MIN</div>
+              </div>
+              
+              <div className={`text-4xl font-mono font-bold transition-opacity duration-500 ${stopwatch.active ? 'opacity-100 text-violet-500 animate-pulse' : 'opacity-30 text-neutral-600'}`}>:</div>
+              
+              <div className="flex flex-col items-center">
+                <div className={`text-5xl font-mono font-black tracking-tighter transition-all duration-300 ${stopwatch.active ? 'text-violet-400 drop-shadow-[0_0_8px_rgba(167,139,250,0.5)]' : 'text-neutral-400'}`}>
+                  {timeObj.s}
+                </div>
+                <div className="text-[8px] font-mono text-neutral-600 uppercase tracking-widest font-bold mt-1">SEC</div>
+              </div>
+            </div>
+
+            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1 items-center opacity-30">
+              <div className="w-[1px] h-1 bg-neutral-500" />
+              <div className="w-[1px] h-1 bg-neutral-500" />
+              <div className="w-[1px] h-2 bg-neutral-400" />
+              <div className="w-[1px] h-1 bg-neutral-500" />
+              <div className="w-[1px] h-1 bg-neutral-500" />
+            </div>
+
+            {stopwatch.startTime && (
+              <div className="absolute top-2 right-4 text-[7px] font-mono text-neutral-700 uppercase tracking-widest">
+                Trace_Sync.init
+              </div>
+            )}
+            <div className="absolute bottom-2 left-4 text-[7px] font-mono text-neutral-700 uppercase tracking-widest">
+              Axiom_Core.chrono
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            {!stopwatch.active ? (
+              <button 
+                onClick={startStopwatch} 
+                className="py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold text-[10px] flex items-center justify-center gap-2 transition-all uppercase tracking-widest active:scale-95 shadow-lg shadow-emerald-500/10"
+              >
+                <Play size={14} fill="currentColor" /> Activate Trace
+              </button>
+            ) : (
+              <button 
+                onClick={pauseStopwatch} 
+                className="py-3 bg-amber-600 hover:bg-amber-500 text-white rounded-lg font-bold text-[10px] flex items-center justify-center gap-2 transition-all uppercase tracking-widest active:scale-95 shadow-lg shadow-amber-500/10"
+              >
+                <Pause size={14} fill="currentColor" /> Suspend Log
+              </button>
+            )}
+            <button 
+              onClick={resetStopwatch} 
+              className="py-3 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-lg font-bold text-[10px] flex items-center justify-center gap-2 transition-all uppercase tracking-widest active:scale-95"
+            >
+              <RotateCcw size={14} /> Reset
+            </button>
+          </div>
+
+          {stopwatch.elapsed > 0 && (
+            <div className={`p-4 rounded-xl border animate-in slide-in-from-top-1 fade-in duration-300 transition-all ${recommendation.border} ${recommendation.bg}`}>
+               <div className="flex items-center gap-2 mb-2">
+                 <Activity size={12} className={recommendation.color} />
+                 <span className={`text-[9px] font-mono font-bold uppercase tracking-widest ${recommendation.color}`}>Recommended Identity Mapping</span>
+               </div>
+               <div className="flex justify-between items-end">
+                 <div>
+                   <p className="text-lg font-bold text-white leading-tight">{recommendation.label}</p>
+                   <p className="text-[9px] text-neutral-500 font-mono uppercase mt-0.5">Based on temporal occupancy</p>
+                 </div>
+                 <div className="text-[10px] font-mono text-neutral-600 uppercase">
+                    v{timeObj.h}.{timeObj.m}
+                 </div>
+               </div>
+            </div>
+          )}
+        </div>
+
         <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6 shadow-xl space-y-5">
           <div className="flex justify-between items-start">
             <div className="flex flex-col">
@@ -255,12 +466,6 @@ const UtilitiesPanel: React.FC<UtilitiesPanelProps> = ({
                Sync status: <span className="text-emerald-500">NOMINAL</span>. Automatic parity active for all blueprints and identity logs.
              </p>
           </div>
-        </div>
-        
-        {/* Placeholder for future utility cards */}
-        <div className="bg-neutral-900/30 border border-neutral-800 border-dashed rounded-xl p-8 flex flex-col items-center justify-center text-center opacity-40">
-           <div className="text-[10px] font-mono text-neutral-600 uppercase tracking-widest">Expansion Slot</div>
-           <p className="text-[9px] text-neutral-700 font-mono mt-1">MODULE_PENDING</p>
         </div>
       </div>
     </div>

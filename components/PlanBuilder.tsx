@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { WorkoutPlan, Exercise } from '../types';
@@ -21,7 +20,10 @@ import {
   Image as ImageControlIcon,
   Search,
   Library,
-  Loader2
+  Loader2,
+  ChevronLeft,
+  ChevronRight,
+  Copy
 } from 'lucide-react';
 
 // Component to handle authenticated Drive image loading via blob fetch
@@ -232,6 +234,7 @@ const MUSCLE_GROUPS = [
 interface DriveImage {
   id: string;
   name: string;
+  target?: string;
   thumbnailLink?: string;
   directUrl?: string;
 }
@@ -273,6 +276,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
   const [librarySearch, setLibrarySearch] = useState('');
   const [loadingLibrary, setLoadingLibrary] = useState(false);
   const [expandedNotes, setExpandedNotes] = useState<Record<string, boolean>>({});
+  const [touchStart, setTouchStart] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [tempPlan, setTempPlan] = useState<Partial<WorkoutPlan>>({
@@ -348,6 +352,17 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
     }
   };
 
+  const copyPlan = (e: React.MouseEvent, plan: WorkoutPlan) => {
+    e.stopPropagation();
+    const newPlan: WorkoutPlan = {
+      ...JSON.parse(JSON.stringify(plan)),
+      id: crypto.randomUUID(),
+      name: `${plan.name} (Copy)`,
+      createdAt: Date.now()
+    };
+    onUpdatePlans([...plans, newPlan]);
+  };
+
   const savePlan = () => {
     if (!tempPlan.name) return;
     const finalPlan = tempPlan as WorkoutPlan;
@@ -401,8 +416,99 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
     }
     setTempPlan(prev => ({
       ...prev,
-      exercises: prev.exercises?.map(ex => ex.id === exerciseId ? { ...ex, ...processedUpdates } : ex)
+      exercises: prev.exercises?.map(ex => {
+        if (ex.id === exerciseId) return { ...ex, ...processedUpdates };
+        if (ex.alternatives) {
+          const updatedAlts = ex.alternatives.map(alt => 
+            alt.id === exerciseId ? { ...alt, ...processedUpdates } : alt
+          );
+          if (updatedAlts !== ex.alternatives) {
+            return { ...ex, alternatives: updatedAlts };
+          }
+        }
+        return ex;
+      })
     }));
+  };
+
+  const addAlternative = (parentId: string) => {
+    setTempPlan(prev => {
+      const exercises = prev.exercises || [];
+      const index = exercises.findIndex(ex => ex.id === parentId);
+      if (index === -1) return prev;
+
+      const currentMain = exercises[index];
+      const newAlt: Exercise = {
+        id: crypto.randomUUID(),
+        name: 'Alternative Exercise',
+        muscleType: currentMain.muscleType,
+        sets: currentMain.sets,
+        reps: currentMain.reps,
+        weight: currentMain.weight,
+        notes: '',
+        supersetId: currentMain.supersetId
+      };
+
+      // To keep it "saved as chosen", make the new one primary immediately
+      const updatedMain = {
+        ...newAlt,
+        alternatives: [...(currentMain.alternatives || []), currentMain]
+      };
+
+      const newExercises = [...exercises];
+      newExercises[index] = updatedMain;
+      return { ...prev, exercises: newExercises };
+    });
+  };
+
+  const setAsPrimary = (parentId: string, altId: string) => {
+    setTempPlan(prev => {
+      const exercises = prev.exercises || [];
+      const index = exercises.findIndex(ex => ex.id === parentId);
+      if (index === -1) return prev;
+
+      const currentMain = exercises[index];
+      const alts = currentMain.alternatives || [];
+      const altIndex = alts.findIndex(a => a.id === altId);
+      if (altIndex === -1) return prev;
+
+      const chosenAlt = alts[altIndex];
+      const remainingAlts = alts.filter(a => a.id !== altId);
+      
+      const newMain = { 
+        ...chosenAlt, 
+        alternatives: [...remainingAlts, { ...currentMain, alternatives: undefined }] 
+      };
+
+      const newExercises = [...exercises];
+      newExercises[index] = newMain;
+      return { ...prev, exercises: newExercises };
+    });
+  };
+
+  const switchAlternative = (parentId: string, delta: number) => {
+    setTempPlan(prev => {
+      const exercises = prev.exercises || [];
+      const index = exercises.findIndex(ex => ex.id === parentId);
+      if (index === -1) return prev;
+
+      const currentMain = exercises[index];
+      const alts = currentMain.alternatives || [];
+      if (alts.length === 0) return prev;
+
+      const all = [currentMain, ...alts];
+      const total = all.length;
+      
+      // Rotate primary slot to next/previous alternative and save as chosen
+      const shift = (delta + total) % total;
+      const rotated = [...all.slice(shift), ...all.slice(0, shift)];
+      
+      const newMain = { ...rotated[0], alternatives: rotated.slice(1) };
+      const newExercises = [...exercises];
+      newExercises[index] = newMain;
+      
+      return { ...prev, exercises: newExercises };
+    });
   };
 
   const toggleSuperset = (exerciseId: string) => {
@@ -414,7 +520,11 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
     
     if (exercise.supersetId) {
       updatedExercises = updatedExercises.map(ex => 
-        ex.id === exerciseId ? { ...ex, supersetId: undefined } : ex
+        ex.id === exerciseId ? { 
+          ...ex, 
+          supersetId: undefined,
+          alternatives: ex.alternatives?.map(alt => ({ ...alt, supersetId: undefined }))
+        } : ex
       );
     } else {
       const supersetCounts: Record<number, number> = {};
@@ -427,12 +537,16 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
       let targetSupersetId = Object.keys(supersetCounts).find(id => supersetCounts[Number(id)] === 1);
 
       if (targetSupersetId) {
+        const sid = Number(targetSupersetId);
         updatedExercises = updatedExercises.map(ex => 
-          ex.id === exerciseId ? { ...ex, supersetId: Number(targetSupersetId) } : ex
+          ex.id === exerciseId ? { 
+            ...ex, 
+            supersetId: sid,
+            alternatives: ex.alternatives?.map(alt => ({ ...alt, supersetId: sid }))
+          } : ex
         );
 
-        const sId = Number(targetSupersetId);
-        const members = updatedExercises.filter(ex => ex.supersetId === sId);
+        const members = updatedExercises.filter(ex => ex.supersetId === sid);
         if (members.length === 2) {
           const idx1 = updatedExercises.findIndex(ex => ex.id === members[0].id);
           const idx2 = updatedExercises.findIndex(ex => ex.id === members[1].id);
@@ -449,7 +563,11 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
       } else {
         const nextId = Math.max(0, ...Object.keys(supersetCounts).map(Number)) + 1;
         updatedExercises = updatedExercises.map(ex => 
-          ex.id === exerciseId ? { ...ex, supersetId: nextId } : ex
+          ex.id === exerciseId ? { 
+            ...ex, 
+            supersetId: nextId,
+            alternatives: ex.alternatives?.map(alt => ({ ...alt, supersetId: nextId }))
+          } : ex
         );
       }
     }
@@ -478,10 +596,39 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
   };
 
   const removeExercise = (exerciseId: string) => {
-    setTempPlan(prev => ({
-      ...prev,
-      exercises: prev.exercises?.filter(ex => ex.id !== exerciseId)
-    }));
+    setTempPlan(prev => {
+      const currentExercises = prev.exercises || [];
+      
+      // We look for the exercise "slot" where this exercise is currently displayed (primary)
+      const primaryIndex = currentExercises.findIndex(ex => ex.id === exerciseId);
+      
+      if (primaryIndex !== -1) {
+        const targetSlot = currentExercises[primaryIndex];
+        // If the slot has alternatives, promote the first one to primary instead of removing the whole slot
+        if (targetSlot.alternatives && targetSlot.alternatives.length > 0) {
+          const nextAlts = [...targetSlot.alternatives];
+          const promoted = nextAlts.shift()!;
+          const newExercises = [...currentExercises];
+          newExercises[primaryIndex] = { ...promoted, alternatives: nextAlts };
+          return { ...prev, exercises: newExercises };
+        }
+        // If it has no alternatives, remove the entire slot from the blueprint
+        return { ...prev, exercises: currentExercises.filter(ex => ex.id !== exerciseId) };
+      }
+
+      // Safeguard: Check if it's a nested alternative and remove it from there
+      const updatedExercises = currentExercises.map(ex => {
+        if (ex.alternatives && ex.alternatives.some(alt => alt.id === exerciseId)) {
+          return {
+            ...ex,
+            alternatives: ex.alternatives.filter(alt => alt.id !== exerciseId)
+          };
+        }
+        return ex;
+      });
+
+      return { ...prev, exercises: updatedExercises };
+    });
   };
 
   // Helper for Google Drive folder management
@@ -563,54 +710,37 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
 
   const fetchLibraryImages = async () => {
     const staticAssets: DriveImage[] = [
-      {
-        id: 'cloudinary-reverse-fly',
-        name: 'Cable Reverse Fly',
-        thumbnailLink: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768244056/Cable_Reverse_Fly_szw2uz.png',
-        directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768244056/Cable_Reverse_Fly_szw2uz.png'
-      },
-      {
-        id: 'cloudinary-pullups',
-        name: 'Pullups',
-        thumbnailLink: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768244056/Pullups_z868pq.png',
-        directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768244056/Pullups_z868pq.png'
-      },
-      {
-        id: 'cloudinary-bench-press',
-        name: 'Bench Press',
-        thumbnailLink: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768244056/Bench_Press_wjxo9b.png',
-        directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768244056/Bench_Press_wjxo9b.png'
-      },
-      {
-        id: 'cloudinary-cable-front-raise',
-        name: 'Cable Front Raise',
-        thumbnailLink: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768244056/Cable_Front_Raise_taaufh.png',
-        directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768244056/Cable_Front_Raise_taaufh.png'
-      },
-      {
-        id: 'cloudinary-seated-row',
-        name: 'Seated Row',
-        thumbnailLink: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768245133/Seated_Row_gchjcv.png',
-        directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768245133/Seated_Row_gchjcv.png'
-      },
-      {
-        id: 'cloudinary-incline-bench-press',
-        name: 'Incline Bench Press',
-        thumbnailLink: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768244057/Incline_Bench_Press_y43x5k.png',
-        directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768244057/Incline_Bench_Press_y43x5k.png'
-      },
-      {
-        id: 'cloudinary-machine-lateral-raise',
-        name: 'Machine Lateral Raise',
-        thumbnailLink: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768244057/Machine_Lateral_Raise_he5jr7.png',
-        directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768244057/Machine_Lateral_Raise_he5jr7.png'
-      },
-      {
-        id: 'cloudinary-incline-chest-press',
-        name: 'Incline Chest Press',
-        thumbnailLink: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768245133/Incline_Chest_Press_hho3fc.png',
-        directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768245133/Incline_Chest_Press_hho3fc.png'
-      }
+      { id: 'cd-tri-dips', name: 'Triceps Dips', target: 'Triceps', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323758/Triceps_Dips_blox8a.gif' },
+      { id: 'cd-seated-row', name: 'Seated Row', target: 'Back', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323755/Seated_Row_keb2jq.gif' },
+      { id: 'cd-single-leg-press', name: 'Single Leg Press', target: 'Quads', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323756/Single_Leg_Press_tc5iq3.gif' },
+      { id: 'cd-single-calf-press', name: 'Single Calf Press', target: 'Calves', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323755/Single_Calf_Press_zvmdgu.gif' },
+      { id: 'cd-seated-leg-curl', name: 'Seated Leg Curl', target: 'Hamstrings', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323755/Seated_Leg_Curl_igj4ba.gif' },
+      { id: 'cd-rope-pushdown', name: 'Rope Pushdown', target: 'Triceps', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323755/Rope_Pushdown_pawkmm.gif' },
+      { id: 'cd-pull-up', name: 'Pull-up', target: 'Back', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323752/Pull-up_wfvwed.gif' },
+      { id: 'cd-rev-cable-curl', name: 'Reverse Cable Curl', target: 'Triceps', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323752/Reverse_Cable_Curl_wlwdbn.webp' },
+      { id: 'cd-lever-calf-raise', name: 'Lever Seated Calf Raise', target: 'Calves', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323751/Lever_Seated_Calf_Raise_fpf1p2.gif' },
+      { id: 'cd-neck-harness', name: 'Neck Harness Extension', target: 'Neck', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323751/Neck_Harness_Extension_ykqxdt.gif' },
+      { id: 'cd-preacher-curl', name: 'Preacher Curl', target: 'Biceps', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323751/Preacher_Curl_e1qxeu.gif' },
+      { id: 'cd-lever-tri-ext', name: 'Lever Triceps Extension', target: 'Triceps', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323750/Lever_Triceps_Extension_fjgrp3.gif' },
+      { id: 'cd-lying-neck-flex', name: 'Lying Neck Flexion', target: 'Neck', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323751/Lying_Neck_Flexion_rctha5.gif' },
+      { id: 'cd-leg-ext', name: 'Leg Extension', target: 'Quads', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323750/Leg_Extension_izu1kw.gif' },
+      { id: 'cd-leg-press', name: 'Leg Press', target: 'Quads', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323750/Leg_Press_s1h69z.gif' },
+      { id: 'cd-leg-curl', name: 'Leg Curl', target: 'Hamstrings', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323748/Leg_Curl_ptmvae.gif' },
+      { id: 'cd-inc-chest-press', name: 'Incline Chest Press', target: 'Chest', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323747/Incline_Chest_Press_lgxlny.gif' },
+      { id: 'cd-horiz-leg-press', name: 'Horizontal Leg Press', target: 'Quads', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323746/Horizontal_Leg_Press_cppv9a.gif' },
+      { id: 'cd-lat-raise-mach', name: 'Lateral Raise Machine', target: 'Shoulders', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323747/Lateral_Raise_Machine_qoaknx.gif' },
+      { id: 'cd-inc-db-press', name: 'Incline Dumbbell Press', target: 'Chest', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323747/Incline_Dumbbell_Press_kkmdpg.gif' },
+      { id: 'cd-lat-neck-flex', name: 'Lateral Neck Flexion', target: 'Neck', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323747/Lateral_Neck_Flexion_gnjjxa.gif' },
+      { id: 'cd-cable-rev-fly', name: 'Cable Reverse Fly', target: 'Shoulders', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323746/Cable_Reverse_Fly_p9pvub.gif' },
+      { id: 'cd-bw-squat', name: 'Bodyweight Squat', target: 'Quads', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323745/Bodyweight_Squat_qhp71r.gif' },
+      { id: 'cd-hammer-curl', name: 'Hammer Curl', target: 'Biceps', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323746/Hammer_Curl_hcfsnr.gif' },
+      { id: 'cd-cable-wrist-curl', name: 'Cable Wrist Curl', target: 'Forearms', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323746/Cable_Wrist_Curl_hivrn8.gif' },
+      { id: 'cd-cable-front-raise', name: 'Cable Front Raise', target: 'Shoulders', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323746/Cable_Front_Raise_d4yxcp.gif' },
+      { id: 'cd-bench-press', name: 'Bench Press', target: 'Chest', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323745/Bench_Press_v8oin9.gif' },
+      { id: 'cd-bb-squat', name: 'Barbell Squat', target: 'Quads', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323745/Barbell_Squat_iz2u2r.gif' },
+      { id: 'cd-back-wrist-curl', name: 'Back Wrist Curl', target: 'Forearms', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323745/Back_Wrist_Curl_f4n3kv.gif' },
+      { id: 'cd-ab-wheel', name: 'Ab Wheel Rollout', target: 'Abs', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323744/Ab_Wheel_Rollout_rd8qjt.gif' },
+      { id: 'cd-bb-curl', name: 'Barbell Curl', target: 'Biceps', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323745/Barbell_Curl_rfhh96.gif' }
     ];
 
     if (!accessToken) {
@@ -657,8 +787,6 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
       setLoadingLibrary(false);
     }
   };
-
-  const currentViewingEx = tempPlan.exercises?.find(ex => ex.id === viewingImageExId);
 
   const filteredLibrary = libraryImages.filter(img => 
     img.name.toLowerCase().includes(librarySearch.toLowerCase())
@@ -712,158 +840,215 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
-          {tempPlan.exercises?.map((ex, index) => (
-            <div key={ex.id} className="bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden flex flex-col group relative">
-              
-              {activePicker === ex.id && (
-                <div className="absolute inset-0 z-50 bg-neutral-950/95 backdrop-blur-md p-3 flex flex-col animate-in fade-in zoom-in-95 duration-200">
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-[10px] font-mono text-neutral-400 uppercase tracking-widest">Select Target Muscle</span>
-                    <button onClick={() => setActivePicker(null)} className="p-1 text-neutral-500 hover:text-white transition-colors">
-                      <X size={16} />
+          {tempPlan.exercises?.map((ex, index) => {
+            const totalAlts = 1 + (ex.alternatives?.length || 0);
+
+            return (
+              <div 
+                key={ex.id} 
+                onTouchStart={e => setTouchStart(e.targetTouches[0].clientX)}
+                onTouchEnd={e => {
+                  if (touchStart === null) return;
+                  const touchEnd = e.changedTouches[0].clientX;
+                  if (touchStart - touchEnd > 50) switchAlternative(ex.id, 1);
+                  if (touchStart - touchEnd < -50) switchAlternative(ex.id, -1);
+                  setTouchStart(null);
+                }}
+                className="bg-neutral-900 border border-neutral-800 rounded-xl flex flex-col group relative"
+              >
+                {/* Visual Stack Layers */}
+                {totalAlts >= 2 && (
+                  <div className="absolute inset-0 -translate-y-2 scale-x-[0.96] bg-neutral-900/60 border border-neutral-800 rounded-xl -z-10" />
+                )}
+                {totalAlts >= 3 && (
+                  <div className="absolute inset-0 -translate-y-3.5 scale-x-[0.90] bg-neutral-900/40 border border-neutral-800 rounded-xl -z-20" />
+                )}
+                
+                {activePicker === ex.id && (
+                  <div className="absolute inset-0 z-50 bg-neutral-950/95 backdrop-blur-md p-3 flex flex-col animate-in fade-in zoom-in-95 duration-200 rounded-xl">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-[10px] font-mono text-neutral-400 uppercase tracking-widest">Select Target Muscle</span>
+                      <button onClick={() => setActivePicker(null)} className="p-1 text-neutral-500 hover:text-white transition-colors">
+                        <X size={16} />
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-4 gap-1.5 flex-1 overflow-y-auto pr-1">
+                      {MUSCLE_GROUPS.map(group => (
+                        <button
+                          key={group}
+                          onClick={() => {
+                            updateExercise(ex.id, { muscleType: group });
+                            setActivePicker(null);
+                          }}
+                          className={`flex flex-col items-center justify-center gap-0.5 p-1 rounded-xl border transition-all
+                            ${ex.muscleType === group ? 'bg-neutral-100 border-neutral-100 text-black' : 'bg-neutral-900 border-neutral-800 text-neutral-500 hover:border-neutral-700'}
+                          `}
+                        >
+                          <MuscleIcon type={group} className="w-4 h-4" />
+                          <span className="text-[8px] font-bold uppercase">{group}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Main Control Row */}
+                <div className="flex flex-row p-3 gap-3 items-stretch relative z-10 bg-neutral-900 rounded-t-xl">
+                  {/* Left: Responsive Image Section */}
+                  <div className="w-32 sm:w-44 shrink-0 flex flex-col">
+                    <div 
+                      onClick={() => setViewingImageExId(ex.id)}
+                      className="relative w-full h-full sm:h-auto sm:aspect-square bg-neutral-950 border border-neutral-800 rounded-lg flex items-center justify-center overflow-hidden cursor-pointer hover:border-neutral-700 transition-all group/img"
+                    >
+                      <SafeImage 
+                        src={ex.image} 
+                        alt={ex.name} 
+                        accessToken={accessToken}
+                        className="w-full h-full object-cover opacity-60 group-hover/img:opacity-80 transition-opacity"
+                      />
+                      
+                      <div className="absolute top-1.5 left-1.5 bg-black/40 px-1 py-0.5 rounded text-[8px] font-mono text-neutral-500 border border-neutral-800/50">
+                        EX-{index + 1}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right: Primary Controls */}
+                  <div className="flex-1 flex flex-col min-w-0 justify-between gap-2">
+                    <div className="flex items-center">
+                      <input 
+                        type="text"
+                        value={ex.name}
+                        onFocus={(e) => e.target.select()}
+                        onChange={(e) => updateExercise(ex.id, { name: e.target.value })}
+                        className="bg-transparent border-none p-0 text-sm font-bold text-white w-full focus:ring-0 truncate"
+                        placeholder="Exercise Title"
+                      />
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-2 flex-1">
+                      <div className="space-y-0.5 flex flex-col">
+                        <span className="text-[8px] font-mono text-neutral-600 uppercase block truncate">Muscle</span>
+                        <button 
+                          onClick={() => setActivePicker(ex.id)}
+                          className="flex items-center justify-center bg-neutral-950 border border-neutral-800 rounded-lg h-full min-h-[36px] px-1 text-[10px] w-full hover:border-neutral-600 transition-all active:scale-95 group/btn"
+                        >
+                          <span className="truncate">{ex.muscleType}</span>
+                        </button>
+                      </div>
+
+                      <div className="space-y-0.5 flex flex-col">
+                        <span className="text-[8px] font-mono text-neutral-600 uppercase block truncate">KG</span>
+                        <input 
+                          type="text"
+                          inputMode="decimal"
+                          value={inputStates[`${ex.id}-weight`] ?? (ex.weight === 0 ? '' : ex.weight.toString())}
+                          onFocus={(e) => e.target.select()}
+                          onChange={(e) => updateNumericField(ex.id, 'weight', e.target.value)}
+                          className="bg-neutral-950 border border-neutral-800 rounded-lg h-full min-h-[36px] px-1 text-[10px] w-full focus:border-neutral-600 outline-none text-center transition-all"
+                        />
+                      </div>
+
+                      <div className="space-y-0.5 flex flex-col">
+                        <span className="text-[8px] font-mono text-neutral-600 uppercase block truncate">Sets</span>
+                        <input 
+                          type="text"
+                          inputMode="decimal"
+                          value={inputStates[`${ex.id}-sets`] ?? (ex.sets === 0 ? '' : ex.sets.toString())}
+                          onFocus={(e) => e.target.select()}
+                          onChange={(e) => updateNumericField(ex.id, 'sets', e.target.value)}
+                          className="bg-neutral-950 border border-neutral-800 rounded-lg h-full min-h-[36px] px-1 text-[10px] w-full focus:border-neutral-600 outline-none text-center transition-all"
+                        />
+                      </div>
+
+                      <div className="space-y-0.5 flex flex-col">
+                        <span className="text-[8px] font-mono text-neutral-600 uppercase block truncate">Reps</span>
+                        <input 
+                          type="text"
+                          inputMode="decimal"
+                          value={inputStates[`${ex.id}-reps`] ?? ex.reps}
+                          onFocus={(e) => e.target.select()}
+                          onChange={(e) => updateNumericField(ex.id, 'reps', e.target.value)}
+                          className="bg-neutral-950 border border-neutral-800 rounded-lg h-full min-h-[36px] px-1 text-[10px] w-full focus:border-neutral-600 outline-none text-center transition-all"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Conditional Notes Area */}
+                {expandedNotes[ex.id] && (
+                  <div className="px-3 pb-3 space-y-3 animate-in fade-in slide-in-from-top-1 duration-200 bg-neutral-900 relative z-10">
+                    <div className="space-y-0.5">
+                      <span className="text-[8px] font-mono text-neutral-700 uppercase">Notes</span>
+                      <AutoExpandingTextarea 
+                        value={ex.notes}
+                        onChange={(e) => updateExercise(ex.id, { notes: e.target.value })}
+                        className="bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1.5 text-[10px] w-full focus:border-neutral-700 outline-none min-h-[44px] leading-snug"
+                        placeholder="Tempo, cues..."
+                      />
+                    </div>
+                    
+                    {ex.alternatives && ex.alternatives.length > 0 && (
+                      <div className="space-y-1 pt-2 border-t border-neutral-800/50">
+                        <span className="text-[8px] font-mono text-neutral-700 uppercase">Alternatives</span>
+                        <div className="space-y-1">
+                          {ex.alternatives.map(alt => (
+                            <div key={alt.id} className="flex items-center justify-between p-2 bg-black/20 rounded-lg border border-neutral-800/50">
+                              <span className="text-[10px] text-neutral-400 truncate pr-2">{alt.name}</span>
+                              <button 
+                                onClick={() => setAsPrimary(ex.id, alt.id)}
+                                className="px-2 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-400 hover:text-white rounded text-[8px] font-mono uppercase transition-all whitespace-nowrap"
+                              >
+                                Set Primary
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Footer */}
+                <div className="p-2 border-t border-neutral-800/50 flex justify-end gap-2 items-center bg-black/10 relative z-10 rounded-b-xl">
+                  <div className="group/plus relative flex items-center mr-auto">
+                    {totalAlts > 1 && (
+                      <div className="absolute left-1/2 -translate-x-1/2 -top-10 flex gap-2 opacity-0 group-hover/plus:opacity-100 transition-opacity bg-neutral-900 rounded-lg p-1 border border-neutral-700 shadow-2xl z-20">
+                         <button onClick={(e) => { e.stopPropagation(); switchAlternative(ex.id, -1); }} className="p-1 hover:bg-neutral-800 rounded text-neutral-400 hover:text-white"><ChevronLeft size={16}/></button>
+                         <button onClick={(e) => { e.stopPropagation(); switchAlternative(ex.id, 1); }} className="p-1 hover:bg-neutral-800 rounded text-neutral-400 hover:text-white"><ChevronRight size={16}/></button>
+                      </div>
+                    )}
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); addAlternative(ex.id); }}
+                      className="p-1 h-6 rounded-md border bg-neutral-800 border-neutral-700 text-neutral-500 hover:text-emerald-500 transition-all flex items-center justify-center"
+                      title="Add alternative exercise"
+                    >
+                      <Plus size={12} />
                     </button>
                   </div>
-                  <div className="grid grid-cols-4 gap-1.5 flex-1 overflow-y-auto pr-1">
-                    {MUSCLE_GROUPS.map(group => (
-                      <button
-                        key={group}
-                        onClick={() => {
-                          updateExercise(ex.id, { muscleType: group });
-                          setActivePicker(null);
-                        }}
-                        className={`flex flex-col items-center justify-center gap-0.5 p-1 rounded-xl border transition-all
-                          ${ex.muscleType === group ? 'bg-neutral-100 border-neutral-100 text-black' : 'bg-neutral-900 border-neutral-800 text-neutral-500 hover:border-neutral-700'}
-                        `}
-                      >
-                        <MuscleIcon type={group} className="w-4 h-4" />
-                        <span className="text-[8px] font-bold uppercase">{group}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
 
-              {/* Main Control Row */}
-              <div className="flex flex-row p-3 gap-3 items-stretch">
-                {/* Left: Responsive Image Section (Spans Title to Sets field) */}
-                <div className="w-32 sm:w-44 shrink-0 flex flex-col">
-                  <div 
-                    onClick={() => setViewingImageExId(ex.id)}
-                    className="relative w-full h-full sm:h-auto sm:aspect-square bg-neutral-950 border border-neutral-800 rounded-lg flex items-center justify-center overflow-hidden cursor-pointer hover:border-neutral-700 transition-all group/img"
+                  <button 
+                    onClick={() => toggleSuperset(ex.id)} 
+                    className={`p-1 h-6 rounded-md border flex items-center gap-1 transition-all ${ex.supersetId ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500' : 'bg-neutral-800 border-neutral-700 text-neutral-500'}`}
                   >
-                    <SafeImage 
-                      src={ex.image} 
-                      alt={ex.name} 
-                      accessToken={accessToken}
-                      className="w-full h-full object-cover opacity-60 group-hover/img:opacity-80 transition-opacity"
-                    />
-                    
-                    <div className="absolute top-1.5 left-1.5 bg-black/40 px-1 py-0.5 rounded text-[8px] font-mono text-neutral-500 border border-neutral-800/50">
-                      EX-{index + 1}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Right: Primary Controls */}
-                <div className="flex-1 flex flex-col min-w-0 justify-between gap-2">
-                  <div className="flex items-center">
-                    <input 
-                      type="text"
-                      value={ex.name}
-                      onFocus={(e) => e.target.select()}
-                      onChange={(e) => updateExercise(ex.id, { name: e.target.value })}
-                      className="bg-transparent border-none p-0 text-sm font-bold text-white w-full focus:ring-0 truncate"
-                      placeholder="Exercise Title"
-                    />
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-2 flex-1">
-                    <div className="space-y-0.5 flex flex-col">
-                      <span className="text-[8px] font-mono text-neutral-600 uppercase block truncate">Muscle</span>
-                      <button 
-                        onClick={() => setActivePicker(ex.id)}
-                        className="flex items-center justify-center bg-neutral-950 border border-neutral-800 rounded-lg h-full min-h-[36px] px-1 text-[10px] w-full hover:border-neutral-600 transition-all active:scale-95 group/btn"
-                      >
-                        <span className="truncate">{ex.muscleType}</span>
-                      </button>
-                    </div>
-
-                    <div className="space-y-0.5 flex flex-col">
-                      <span className="text-[8px] font-mono text-neutral-600 uppercase block truncate">KG</span>
-                      <input 
-                        type="text"
-                        inputMode="decimal"
-                        value={inputStates[`${ex.id}-weight`] ?? (ex.weight === 0 ? '' : ex.weight.toString())}
-                        onFocus={(e) => e.target.select()}
-                        onChange={(e) => updateNumericField(ex.id, 'weight', e.target.value)}
-                        className="bg-neutral-950 border border-neutral-800 rounded-lg h-full min-h-[36px] px-1 text-[10px] w-full focus:border-neutral-600 outline-none text-center transition-all"
-                      />
-                    </div>
-
-                    <div className="space-y-0.5 flex flex-col">
-                      <span className="text-[8px] font-mono text-neutral-600 uppercase block truncate">Sets</span>
-                      <input 
-                        type="text"
-                        inputMode="decimal"
-                        value={inputStates[`${ex.id}-sets`] ?? (ex.sets === 0 ? '' : ex.sets.toString())}
-                        onFocus={(e) => e.target.select()}
-                        onChange={(e) => updateNumericField(ex.id, 'sets', e.target.value)}
-                        className="bg-neutral-950 border border-neutral-800 rounded-lg h-full min-h-[36px] px-1 text-[10px] w-full focus:border-neutral-600 outline-none text-center transition-all"
-                      />
-                    </div>
-
-                    <div className="space-y-0.5 flex flex-col">
-                      <span className="text-[8px] font-mono text-neutral-600 uppercase block truncate">Reps</span>
-                      <input 
-                        type="text"
-                        inputMode="decimal"
-                        value={inputStates[`${ex.id}-reps`] ?? ex.reps}
-                        onFocus={(e) => e.target.select()}
-                        onChange={(e) => updateNumericField(ex.id, 'reps', e.target.value)}
-                        className="bg-neutral-950 border border-neutral-800 rounded-lg h-full min-h-[36px] px-1 text-[10px] w-full focus:border-neutral-600 outline-none text-center transition-all"
-                      />
-                    </div>
-                  </div>
+                    <Link size={12} />
+                    {ex.supersetId && <span className="text-[9px] font-bold leading-none">{ex.supersetId}</span>}
+                  </button>
+                  <button 
+                    onClick={() => setExpandedNotes(prev => ({ ...prev, [ex.id]: !prev[ex.id] }))} 
+                    title="Toggle Notes"
+                    className={`p-1 h-6 rounded-md border flex items-center gap-1 transition-all ${expandedNotes[ex.id] ? 'bg-neutral-100 border-neutral-100 text-black' : 'bg-neutral-800 border-neutral-700 text-neutral-500'}`}
+                  >
+                    <FileText size={12} />
+                  </button>
+                  <button onClick={() => setExerciseToDeleteId(ex.id)} className="text-neutral-600 hover:text-rose-500 transition-colors p-1 h-6 flex items-center">
+                    <Trash2 size={13} />
+                  </button>
                 </div>
               </div>
-
-              {/* Conditional Notes Area */}
-              {expandedNotes[ex.id] && (
-                <div className="px-3 pb-3 space-y-2 animate-in fade-in slide-in-from-top-1 duration-200">
-                  <div className="space-y-0.5">
-                    <span className="text-[8px] font-mono text-neutral-700 uppercase">Notes</span>
-                    <AutoExpandingTextarea 
-                      value={ex.notes}
-                      onChange={(e) => updateExercise(ex.id, { notes: e.target.value })}
-                      className="bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1.5 text-[10px] w-full focus:border-neutral-700 outline-none min-h-[44px] leading-snug"
-                      placeholder="Tempo, cues..."
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Footer */}
-              <div className="p-2 border-t border-neutral-800/50 flex justify-end gap-2 items-center bg-black/10">
-                <button 
-                  onClick={() => toggleSuperset(ex.id)} 
-                  className={`p-1 h-6 rounded-md border flex items-center gap-1 transition-all ${ex.supersetId ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500' : 'bg-neutral-800 border-neutral-700 text-neutral-500'}`}
-                >
-                  <Link size={12} />
-                  {ex.supersetId && <span className="text-[9px] font-bold leading-none">{ex.supersetId}</span>}
-                </button>
-                <button 
-                  onClick={() => setExpandedNotes(prev => ({ ...prev, [ex.id]: !prev[ex.id] }))} 
-                  title="Toggle Notes"
-                  className={`p-1 h-6 rounded-md border flex items-center gap-1 transition-all ${expandedNotes[ex.id] ? 'bg-neutral-100 border-neutral-100 text-black' : 'bg-neutral-800 border-neutral-700 text-neutral-500'}`}
-                >
-                  <FileText size={12} />
-                </button>
-                <button onClick={() => setExerciseToDeleteId(ex.id)} className="text-neutral-600 hover:text-rose-500 transition-colors p-1 h-6 flex items-center">
-                  <Trash2 size={13} />
-                </button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
 
           <button 
             onClick={addExercise}
@@ -880,7 +1065,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
         {viewingImageExId && createPortal(
           <div className="fixed inset-0 z-[150] flex items-center justify-center p-4">
             <div 
-              className="absolute inset-0 bg-black/90 backdrop-blur-md animate-in fade-in duration-200" 
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200" 
               onClick={() => { setViewingImageExId(null); setIsLibraryOpen(false); }} 
             />
             <div className={`relative bg-[#1a1a1a] border border-neutral-800 w-full rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 ${isLibraryOpen ? 'max-w-2xl' : 'max-w-sm'}`}>
@@ -906,7 +1091,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                   <>
                     <div className="w-full aspect-square bg-neutral-950 border border-neutral-800 rounded-xl overflow-hidden flex items-center justify-center">
                       <SafeImage 
-                        src={currentViewingEx?.image} 
+                        src={tempPlan.exercises?.flatMap(ex => [ex, ...(ex.alternatives || [])]).find(ex => ex.id === viewingImageExId)?.image} 
                         alt="Exercise Reference" 
                         accessToken={accessToken}
                         className="w-full h-full object-contain"
@@ -919,7 +1104,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                         className="w-full py-3 bg-neutral-100 hover:bg-white text-black font-bold rounded-xl transition-all active:scale-95 uppercase text-xs tracking-widest flex items-center justify-center gap-2"
                       >
                         <Upload size={16} />
-                        {currentViewingEx?.image ? 'Replace Asset' : 'Upload Asset'}
+                        {tempPlan.exercises?.flatMap(ex => [ex, ...(ex.alternatives || [])]).find(ex => ex.id === viewingImageExId)?.image ? 'Replace Asset' : 'Upload Asset'}
                       </button>
 
                       <button 
@@ -930,7 +1115,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                         Choose from library
                       </button>
                       
-                      {currentViewingEx?.image && (
+                      {tempPlan.exercises?.flatMap(ex => [ex, ...(ex.alternatives || [])]).find(ex => ex.id === viewingImageExId)?.image && (
                         <button 
                           onClick={() => {
                             if (viewingImageExId) {
@@ -972,7 +1157,11 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                             onClick={() => {
                               if (viewingImageExId) {
                                 const imgUrl = img.directUrl || `https://www.googleapis.com/drive/v3/files/${img.id}?alt=media`;
-                                updateExercise(viewingImageExId, { image: imgUrl });
+                                updateExercise(viewingImageExId, { 
+                                  image: imgUrl,
+                                  name: img.name,
+                                  muscleType: img.target || 'Chest'
+                                });
                                 setIsLibraryOpen(false);
                                 setViewingImageExId(null);
                               }
@@ -1096,7 +1285,15 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                       <Activity size={16} />
                     </button>
                     <button 
+                      onClick={(e) => { e.stopPropagation(); copyPlan(e, plan); }}
+                      title="Copy this blueprint"
+                      className="p-2 bg-neutral-800 hover:bg-neutral-700 rounded-lg text-neutral-400 hover:text-white border border-neutral-700/50 transition-all"
+                    >
+                      <Copy size={16} />
+                    </button>
+                    <button 
                       onClick={(e) => { e.stopPropagation(); deletePlan(plan.id); }}
+                      title="Delete blueprint"
                       className="p-2 bg-neutral-800 hover:bg-rose-900/30 rounded-lg text-neutral-400 hover:text-rose-500 transition-all"
                     >
                       <Trash2 size={16} />

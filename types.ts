@@ -19,6 +19,7 @@ export interface Exercise {
   notes?: string;
   image?: string; // base64 or URL
   supersetId?: number;
+  alternatives?: Exercise[];
 }
 
 export interface WorkoutPlan {

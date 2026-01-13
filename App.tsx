@@ -150,7 +150,7 @@ const App: React.FC = () => {
       if (!folderId) {
         const createResponse = await fetch('https://www.googleapis.com/drive/v3/files', {
           method: 'POST',
-          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          headers: { Authorization: `Bearer ${token}` },
           body: JSON.stringify({ name: 'Axiom', mimeType: 'application/vnd.google-apps.folder' }),
         });
         const createData = await createResponse.json();
@@ -169,7 +169,7 @@ const App: React.FC = () => {
       if (!syncsFolderId) {
         const createSyncsResponse = await fetch('https://www.googleapis.com/drive/v3/files', {
           method: 'POST',
-          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          headers: { Authorization: `Bearer ${token}` },
           body: JSON.stringify({ 
             name: 'syncs', 
             mimeType: 'application/vnd.google-apps.folder',
@@ -309,19 +309,8 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    // 30 day inactivity check: logout only if user has been away for more than 30 days
-    const lastActive = localStorage.getItem(LAST_ACTIVE_TS_KEY);
-    const now = Date.now();
-    const thirtyDaysInMs = 30 * 24 * 60 * 60 * 1000;
-
-    if (lastActive && (now - parseInt(lastActive) > thirtyDaysInMs)) {
-      localStorage.removeItem('axiom_sync_token');
-      localStorage.removeItem('axiom_sync_profile');
-      localStorage.removeItem(LAST_ACTIVE_TS_KEY);
-      setAccessToken(null);
-    } else {
-      localStorage.setItem(LAST_ACTIVE_TS_KEY, now.toString());
-    }
+    // Keep last active timestamp updated
+    localStorage.setItem(LAST_ACTIVE_TS_KEY, Date.now().toString());
 
     const savedEntries = localStorage.getItem(STORAGE_KEY);
     const savedPlans = localStorage.getItem(PLANS_STORAGE_KEY);
@@ -633,7 +622,7 @@ const App: React.FC = () => {
           <div className="flex items-center gap-3">
             <AxiomLogo className="w-8 h-8" />
             <div className="flex flex-col">
-              <h1 className="text-lg font-mono font-bold tracking-tight uppercase leading-none text-white">Axiom v2.3</h1>
+              <h1 className="text-lg font-mono font-bold tracking-tight uppercase leading-none text-white">Axiom v2.4</h1>
               <span className="text-[9px] text-neutral-500 font-mono uppercase tracking-tighter">Personal Intelligence OS</span>
             </div>
           </div>
@@ -822,7 +811,7 @@ const App: React.FC = () => {
         </div>
         <div className="flex gap-4">
           <span className={syncStatus !== 'idle' ? 'animate-pulse text-emerald-500' : ''}> {syncStatus !== 'idle' ? 'SYNC_ACTIVE' : 'IDENTITY_STABLE: OK'} </span>
-          <span>SYSTEM_VERSION: ALPHA_v2.3</span>
+          <span>SYSTEM_VERSION: ALPHA_v2.4</span>
         </div>
       </footer>
     </div>

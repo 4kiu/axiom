@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { WorkoutEntry, IdentityState, WorkoutPlan } from '../types.ts';
 import { GoogleGenAI } from '@google/genai';
@@ -59,16 +58,8 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
   const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
-    // 30 day inactivity check: logout only if user has been away for more than 30 days
-    const lastActive = localStorage.getItem('axiom_last_active_ts');
-    const now = Date.now();
-    const thirtyDaysInMs = 30 * 24 * 60 * 60 * 1000;
-
-    if (lastActive && (now - parseInt(lastActive) > thirtyDaysInMs)) {
-      handleLogout();
-    } else {
-      localStorage.setItem('axiom_last_active_ts', now.toString());
-    }
+    // Keep last active timestamp updated
+    localStorage.setItem('axiom_last_active_ts', Date.now().toString());
 
     if (accessToken && !userInfo) fetchUserInfo(accessToken);
   }, [accessToken, userInfo]);
