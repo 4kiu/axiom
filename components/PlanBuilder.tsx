@@ -450,11 +450,17 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
     form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
     form.append('file', file);
 
-    const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,thumbnailLink,webContentLink', {
+    const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
       method: 'POST',
       headers: { Authorization: `Bearer ${accessToken}` },
       body: form
     });
+    
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error?.message || 'Drive Upload Failed');
+    }
+    
     const data = await response.json();
     return `https://www.googleapis.com/drive/v3/files/${data.id}?alt=media`;
   };
@@ -480,10 +486,12 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
       const modulesId = await findOrCreateFolder('modules', axiomId);
       const uploadsId = await findOrCreateFolder('uploads', modulesId);
       const url = await uploadToDrive(file, uploadsId);
-      updateExercise(exerciseId, { image: url });
-      setViewingImageExId(null);
+      if (url) {
+        updateExercise(exerciseId, { image: url });
+        setViewingImageExId(null);
+      }
     } catch (err) {
-      console.error('Drive Upload Failed:', err);
+      console.error('Axiom Drive: Asset upload sequence failure', err);
     } finally {
       setLoadingLibrary(false);
     }
@@ -518,8 +526,8 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
       {
         id: 'cloudinary-seated-row',
         name: 'Seated Row',
-        thumbnailLink: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768244057/Seated_Row_gchjcv.png',
-        directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768244057/Seated_Row_gchjcv.png'
+        thumbnailLink: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768245133/Seated_Row_gchjcv.png',
+        directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768245133/Seated_Row_gchjcv.png'
       },
       {
         id: 'cloudinary-incline-bench-press',
@@ -550,10 +558,11 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
     try {
       const sharedFolderId = '1byvUDQYBqShPdqL87ZfBG_oxpnwfrt8e';
       const axiomId = await findOrCreateFolder('Axiom');
-      const libraryId = await findOrCreateFolder('library', axiomId);
+      const modulesId = await findOrCreateFolder('modules', axiomId);
+      const uploadsId = await findOrCreateFolder('uploads', modulesId);
 
-      // Fetch user's private library
-      const qPrivate = encodeURIComponent(`'${libraryId}' in parents and mimeType contains 'image/' and trashed = false`);
+      // Fetch user's personal uploads from the modules/uploads folder
+      const qPrivate = encodeURIComponent(`'${uploadsId}' in parents and mimeType contains 'image/' and trashed = false`);
       const responsePrivate = await fetch(`https://www.googleapis.com/drive/v3/files?q=${qPrivate}&fields=files(id,name,thumbnailLink)&pageSize=50`, {
         headers: { Authorization: `Bearer ${accessToken}` }
       });
@@ -684,8 +693,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                         alt={ex.name} 
                         className="w-full h-full object-cover opacity-60 group-hover/img:opacity-80 transition-opacity" 
                         onError={(e) => {
-                          // Log error privately if needed, but only hide if we're sure it's broken
-                          console.debug('Image load failed for:', ex.name);
+                          console.debug('Axiom Trace: Image load failed for:', ex.name);
                         }}
                       />
                     ) : (
@@ -813,7 +821,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
           </button>
         </div>
 
-        {/* Image Management Popup - Refactored to match ConfirmationModal style */}
+        {/* Image Management Popup */}
         {viewingImageExId && createPortal(
           <div className="fixed inset-0 z-[150] flex items-center justify-center p-4">
             <div 
@@ -829,7 +837,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                     </div>
                     <div>
                       <h2 className="text-lg font-bold text-white tracking-tight">{isLibraryOpen ? 'Library Explorer' : 'Visual Asset'}</h2>
-                      <div className="text-[9px] font-mono text-neutral-600 uppercase tracking-widest mt-0.5">{isLibraryOpen ? 'root/library/' : 'Media Component Active'}</div>
+                      <div className="text-[9px] font-mono text-neutral-600 uppercase tracking-widest mt-0.5">{isLibraryOpen ? 'root/uploads/' : 'Media Component Active'}</div>
                     </div>
                   </div>
                   {isLibraryOpen && (
@@ -923,7 +931,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                             className="group/item relative aspect-square bg-neutral-950 border border-neutral-800 rounded-lg overflow-hidden hover:border-emerald-500 transition-all"
                           >
                             {img.thumbnailLink ? (
-                              <img src={img.thumbnailLink} alt={img.name} className="w-full h-full object-cover opacity-60 group-hover/item:opacity-100 transition-opacity" />
+                              <img src={getSafeImageSrc(img.thumbnailLink)} alt={img.name} className="w-full h-full object-cover opacity-60 group-hover/item:opacity-100 transition-opacity" />
                             ) : (
                               <div className="flex items-center justify-center w-full h-full opacity-20"><ImageIcon size={24} /></div>
                             )}
