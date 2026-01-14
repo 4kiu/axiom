@@ -52,7 +52,7 @@ export const IDENTITY_METADATA = {
     borderColor: 'border-violet-500',
     textColor: 'text-violet-100',
     description: 'Peak state. Increments the Training Streak.',
-    duration: '120m+'
+    duration: '110m+'
   },
   [IdentityState.NORMAL]: {
     label: 'Normal',
@@ -60,7 +60,7 @@ export const IDENTITY_METADATA = {
     borderColor: 'border-emerald-500',
     textColor: 'text-emerald-100',
     description: 'Standard volume. Increments the Training Streak.',
-    duration: '80-120m'
+    duration: '70-110m'
   },
   [IdentityState.MAINTENANCE]: {
     label: 'Maintenance',
@@ -68,7 +68,7 @@ export const IDENTITY_METADATA = {
     borderColor: 'border-amber-500',
     textColor: 'text-amber-100',
     description: 'Preserving baseline. Increments the Training Streak.',
-    duration: '40-80m'
+    duration: '30-70m'
   },
   [IdentityState.SURVIVAL]: {
     label: 'Survival',
@@ -76,7 +76,7 @@ export const IDENTITY_METADATA = {
     borderColor: 'border-rose-500',
     textColor: 'text-rose-100',
     description: 'Minimum dose. Resets/breaks Training Streaks.',
-    duration: '20-40m'
+    duration: '30m-'
   },
   [IdentityState.REST]: {
     label: 'Rest',

@@ -201,7 +201,7 @@ const StatusPanel: React.FC<StatusPanelProps> = ({ entries, onAction }) => {
             <AlertCircle className="text-rose-500 shrink-0 mt-0.5" size={16} />
             <div className="text-[10px] text-rose-200 leading-tight font-mono">
               <span className="block font-bold mb-1 uppercase tracking-tighter text-rose-400">Integrity Warning</span>
-              Identity drift detected. Missing logs or Survival states break continuity.
+              Identity drift detected. Log a session to restore continuity.
             </div>
           </div>
         ) : (

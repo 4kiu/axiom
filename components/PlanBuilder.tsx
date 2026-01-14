@@ -23,7 +23,9 @@ import {
   Loader2,
   ChevronLeft,
   ChevronRight,
-  Copy
+  Copy,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 
 // Component to handle authenticated Drive image loading via blob fetch
@@ -278,6 +280,10 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
   const [expandedNotes, setExpandedNotes] = useState<Record<string, boolean>>({});
   const [touchStart, setTouchStart] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  const [hideImages, setHideImages] = useState(false);
+  const [isSavedMenuOpen, setIsSavedMenuOpen] = useState(false);
+  const savedMenuContainerRef = useRef<HTMLDivElement>(null);
 
   const [tempPlan, setTempPlan] = useState<Partial<WorkoutPlan>>({
     name: '',
@@ -325,10 +331,36 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
     }
   }, [externalIsEditing, externalEditingPlanId, plans]);
 
+  // Handle outside click for the "Saved" button menu
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (savedMenuContainerRef.current && !savedMenuContainerRef.current.contains(event.target as Node)) {
+        setIsSavedMenuOpen(false);
+      }
+    };
+
+    if (isSavedMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isSavedMenuOpen]);
+
+  // Clear library search when exiting library view
+  useEffect(() => {
+    if (!isLibraryOpen) {
+      setLibrarySearch('');
+    }
+  }, [isLibraryOpen]);
+
   // Derive local dirty state for UI feedback (Save vs Saved)
-  const isDirty = (isCreating || editingPlanId !== null) && 
-                  initialPlanRef.current !== null && 
-                  JSON.stringify(tempPlan) !== initialPlanRef.current;
+  // useMemo prevents expensive stringify on every render when cycling fast
+  const isDirty = useMemo(() => {
+    return (isCreating || editingPlanId !== null) && 
+           initialPlanRef.current !== null && 
+           JSON.stringify(tempPlan) !== initialPlanRef.current;
+  }, [tempPlan, isCreating, editingPlanId]);
 
   // Track dirty state for parent
   useEffect(() => {
@@ -438,9 +470,19 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
       if (index === -1) return prev;
 
       const currentMain = exercises[index];
+      
+      // Limit to 10 alternatives
+      if ((currentMain.alternatives?.length || 0) >= 10) return prev;
+
+      const altNumber = (currentMain.alternatives?.length || 0) + 1;
+      
+      // Flatten current to prevent nested alternatives crash
+      const flattenedAlts = (currentMain.alternatives || []).map(a => ({ ...a, alternatives: undefined }));
+      const flattenedMain = { ...currentMain, alternatives: undefined };
+
       const newAlt: Exercise = {
         id: crypto.randomUUID(),
-        name: 'Alternative Exercise',
+        name: `Alternative Exercise (${altNumber})`,
         muscleType: currentMain.muscleType,
         sets: currentMain.sets,
         reps: currentMain.reps,
@@ -452,7 +494,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
       // To keep it "saved as chosen", make the new one primary immediately
       const updatedMain = {
         ...newAlt,
-        alternatives: [...(currentMain.alternatives || []), currentMain]
+        alternatives: [...flattenedAlts, flattenedMain]
       };
 
       const newExercises = [...exercises];
@@ -496,7 +538,8 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
       const alts = currentMain.alternatives || [];
       if (alts.length === 0) return prev;
 
-      const all = [currentMain, ...alts];
+      // Ensure all items are flat before rotation to prevent recursive state crash
+      const all = [currentMain, ...alts].map(ex => ({ ...ex, alternatives: undefined }));
       const total = all.length;
       
       // Rotate primary slot to next/previous alternative and save as chosen
@@ -661,7 +704,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
     form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
     form.append('file', file);
 
-    const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
+    const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
       method: 'POST',
       headers: { Authorization: `Bearer ${accessToken}` },
       body: form
@@ -734,7 +777,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
       { id: 'cd-cable-rev-fly', name: 'Cable Reverse Fly', target: 'Shoulders', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323746/Cable_Reverse_Fly_p9pvub.gif' },
       { id: 'cd-bw-squat', name: 'Bodyweight Squat', target: 'Quads', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323745/Bodyweight_Squat_qhp71r.gif' },
       { id: 'cd-hammer-curl', name: 'Hammer Curl', target: 'Biceps', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323746/Hammer_Curl_hcfsnr.gif' },
-      { id: 'cd-cable-wrist-curl', name: 'Cable Wrist Curl', target: 'Forearms', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323746/Cable_Wrist_Curl_hivrn8.gif' },
+      { id: 'cd-cable-wrist-curl', name: 'Cable Private URL', target: 'Forearms', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323746/Cable_Wrist_Curl_hivrn8.gif' },
       { id: 'cd-cable-front-raise', name: 'Cable Front Raise', target: 'Shoulders', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323746/Cable_Front_Raise_d4yxcp.gif' },
       { id: 'cd-bench-press', name: 'Bench Press', target: 'Chest', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323745/Bench_Press_v8oin9.gif' },
       { id: 'cd-bb-squat', name: 'Barbell Squat', target: 'Quads', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323745/Barbell_Squat_iz2u2r.gif' },
@@ -789,14 +832,15 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
   };
 
   const filteredLibrary = libraryImages.filter(img => 
-    img.name.toLowerCase().includes(librarySearch.toLowerCase())
+    img.name.toLowerCase().includes(librarySearch.toLowerCase()) ||
+    (img.target && img.target.toLowerCase().includes(librarySearch.toLowerCase()))
   );
 
   if (isCreating || editingPlanId) {
     return (
       <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
         <div className="flex justify-between items-center border-b border-neutral-800 pb-4">
-          <div className="flex-1 max-w-xl flex items-center gap-4">
+          <div className="flex-1 max-w-xl flex items-center gap-2">
             <button 
               onClick={() => { 
                 if (onCloseEditor) onCloseEditor(); 
@@ -804,7 +848,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
               }} 
               className="p-2 -ml-2 text-neutral-500 hover:text-white transition-colors"
             >
-              <ArrowLeft size={24} />
+              <ChevronLeft size={24} />
             </button>
             <div className="shrink-0">
                <BookOpen className="text-neutral-500" size={28} />
@@ -828,20 +872,55 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
             </div>
           </div>
           <div className="flex gap-2">
-            <button 
-              onClick={savePlan} 
-              disabled={!isDirty || !tempPlan.name}
-              className={`px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-all active:scale-95 ${!isDirty ? 'bg-neutral-800 text-neutral-500 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-500 text-white'}`}
-            >
-              <Check size={18} />
-              {isDirty ? 'Save' : 'Saved'}
-            </button>
+            <div className="relative" ref={savedMenuContainerRef}>
+              <button 
+                onClick={() => {
+                  if (isDirty) savePlan();
+                  else setIsSavedMenuOpen(!isSavedMenuOpen);
+                }} 
+                disabled={isDirty && !tempPlan.name}
+                className={`px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-all active:scale-95 min-w-[105px] justify-center ${
+                  isDirty 
+                    ? (!tempPlan.name ? 'bg-neutral-800 text-neutral-500 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-500 text-white')
+                    : 'bg-neutral-800 text-neutral-500 hover:bg-neutral-700 hover:text-white'
+                }`}
+              >
+                <Check size={18} />
+                {isDirty ? 'Save' : 'Saved'}
+                {!isDirty && (
+                  <ChevronDown 
+                    size={14} 
+                    className={`transition-transform duration-300 ${isSavedMenuOpen ? 'rotate-180' : ''}`} 
+                  />
+                )}
+              </button>
+              
+              {isSavedMenuOpen && !isDirty && (
+                <div className="absolute top-full right-0 mt-2 z-50 w-full origin-top animate-in fade-in zoom-in-90 slide-in-from-top-2 duration-200">
+                  <button
+                    onClick={() => {
+                      setHideImages(!hideImages);
+                      setIsSavedMenuOpen(false);
+                    }}
+                    className={`w-full px-4 py-2 rounded-lg font-bold flex items-center justify-center gap-2 transition-all active:scale-95 shadow-2xl border whitespace-nowrap ${
+                      hideImages 
+                        ? 'bg-amber-400/10 text-amber-400 border-amber-400/20 hover:bg-amber-400/20' 
+                        : 'bg-neutral-800 text-white border-neutral-700 hover:bg-neutral-700'
+                    }`}
+                  >
+                    {hideImages ? <Eye size={18} /> : <EyeOff size={18} />}
+                    {hideImages ? 'Unhide' : 'Hide'}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
           {tempPlan.exercises?.map((ex, index) => {
             const totalAlts = 1 + (ex.alternatives?.length || 0);
+            const hasAlternatives = ex.alternatives && ex.alternatives.length > 0;
 
             return (
               <div 
@@ -881,7 +960,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                             setActivePicker(null);
                           }}
                           className={`flex flex-col items-center justify-center gap-0.5 p-1 rounded-xl border transition-all
-                            ${ex.muscleType === group ? 'bg-neutral-100 border-neutral-100 text-black' : 'bg-neutral-900 border-neutral-800 text-neutral-500 hover:border-neutral-700'}
+                            ${ex.muscleType === group ? 'bg-neutral-300 border-neutral-300 text-black' : 'bg-neutral-900 border-neutral-800 text-neutral-500 hover:border-neutral-700'}
                           `}
                         >
                           <MuscleIcon type={group} className="w-4 h-4" />
@@ -895,23 +974,25 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                 {/* Main Control Row */}
                 <div className="flex flex-row p-3 gap-3 items-stretch relative z-10 bg-neutral-900 rounded-t-xl">
                   {/* Left: Responsive Image Section */}
-                  <div className="w-32 sm:w-44 shrink-0 flex flex-col">
-                    <div 
-                      onClick={() => setViewingImageExId(ex.id)}
-                      className="relative w-full h-full sm:h-auto sm:aspect-square bg-neutral-950 border border-neutral-800 rounded-lg flex items-center justify-center overflow-hidden cursor-pointer hover:border-neutral-700 transition-all group/img"
-                    >
-                      <SafeImage 
-                        src={ex.image} 
-                        alt={ex.name} 
-                        accessToken={accessToken}
-                        className="w-full h-full object-cover opacity-60 group-hover/img:opacity-80 transition-opacity"
-                      />
-                      
-                      <div className="absolute top-1.5 left-1.5 bg-black/40 px-1 py-0.5 rounded text-[8px] font-mono text-neutral-500 border border-neutral-800/50">
-                        EX-{index + 1}
+                  {!hideImages && (
+                    <div className="w-32 sm:w-44 shrink-0 flex flex-col animate-in fade-in duration-300">
+                      <div 
+                        onClick={() => setViewingImageExId(ex.id)}
+                        className="relative w-full h-full sm:h-auto sm:aspect-square bg-neutral-950 border border-neutral-800 rounded-lg flex items-center justify-center overflow-hidden cursor-pointer hover:border-neutral-700 transition-all group/img"
+                      >
+                        <SafeImage 
+                          src={ex.image} 
+                          alt={ex.name} 
+                          accessToken={accessToken}
+                          className="w-full h-full object-cover opacity-60 group-hover/img:opacity-80 transition-opacity"
+                        />
+                        
+                        <div className="absolute top-1.5 left-1.5 bg-black/40 px-1 py-0.5 rounded text-[8px] font-mono text-neutral-500 border border-neutral-800/50">
+                          EX-{index + 1}
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  )}
 
                   {/* Right: Primary Controls */}
                   <div className="flex-1 flex flex-col min-w-0 justify-between gap-2">
@@ -984,29 +1065,10 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                       <AutoExpandingTextarea 
                         value={ex.notes}
                         onChange={(e) => updateExercise(ex.id, { notes: e.target.value })}
-                        className="bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1.5 text-[10px] w-full focus:border-neutral-700 outline-none min-h-[44px] leading-snug"
+                        className="bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1.5 text-[10px] w-full focus:border-neutral-700 outline-none min-h-[100px] leading-snug"
                         placeholder="Tempo, cues..."
                       />
                     </div>
-                    
-                    {ex.alternatives && ex.alternatives.length > 0 && (
-                      <div className="space-y-1 pt-2 border-t border-neutral-800/50">
-                        <span className="text-[8px] font-mono text-neutral-700 uppercase">Alternatives</span>
-                        <div className="space-y-1">
-                          {ex.alternatives.map(alt => (
-                            <div key={alt.id} className="flex items-center justify-between p-2 bg-black/20 rounded-lg border border-neutral-800/50">
-                              <span className="text-[10px] text-neutral-400 truncate pr-2">{alt.name}</span>
-                              <button 
-                                onClick={() => setAsPrimary(ex.id, alt.id)}
-                                className="px-2 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-400 hover:text-white rounded text-[8px] font-mono uppercase transition-all whitespace-nowrap"
-                              >
-                                Set Primary
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
                   </div>
                 )}
 
@@ -1021,10 +1083,11 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                     )}
                     <button 
                       onClick={(e) => { e.stopPropagation(); addAlternative(ex.id); }}
-                      className="p-1 h-6 rounded-md border bg-neutral-800 border-neutral-700 text-neutral-500 hover:text-emerald-500 transition-all flex items-center justify-center"
+                      className={`p-1 h-6 rounded-md border transition-all flex items-center justify-center gap-1 ${hasAlternatives ? 'bg-neutral-300 border-neutral-300 text-black px-1.5' : 'bg-neutral-800 border-neutral-700 text-neutral-500 hover:text-emerald-500'}`}
                       title="Add alternative exercise"
                     >
                       <Plus size={12} />
+                      {hasAlternatives && <span className="text-[9px] font-bold">{ex.alternatives.length}</span>}
                     </button>
                   </div>
 
@@ -1038,7 +1101,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                   <button 
                     onClick={() => setExpandedNotes(prev => ({ ...prev, [ex.id]: !prev[ex.id] }))} 
                     title="Toggle Notes"
-                    className={`p-1 h-6 rounded-md border flex items-center gap-1 transition-all ${expandedNotes[ex.id] ? 'bg-neutral-100 border-neutral-100 text-black' : 'bg-neutral-800 border-neutral-700 text-neutral-500'}`}
+                    className={`p-1 h-6 rounded-md border flex items-center gap-1 transition-all ${expandedNotes[ex.id] ? 'bg-neutral-300 border-neutral-300 text-black' : 'bg-neutral-800 border-neutral-700 text-neutral-500'}`}
                   >
                     <FileText size={12} />
                   </button>
@@ -1101,7 +1164,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                     <div className="flex flex-col gap-2 pt-2">
                       <button 
                         onClick={() => fileInputRef.current?.click()}
-                        className="w-full py-3 bg-neutral-100 hover:bg-white text-black font-bold rounded-xl transition-all active:scale-95 uppercase text-xs tracking-widest flex items-center justify-center gap-2"
+                        className="w-full py-3 bg-neutral-300 hover:bg-neutral-200 text-black font-bold rounded-xl transition-all active:scale-95 uppercase text-xs tracking-widest flex items-center justify-center gap-2"
                       >
                         <Upload size={16} />
                         {tempPlan.exercises?.flatMap(ex => [ex, ...(ex.alternatives || [])]).find(ex => ex.id === viewingImageExId)?.image ? 'Replace Asset' : 'Upload Asset'}
@@ -1238,7 +1301,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
         </div>
         <button 
           onClick={startNewPlan}
-          className="bg-neutral-100 hover:bg-white text-black px-2 sm:px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-all"
+          className="bg-neutral-300 hover:bg-neutral-200 text-black px-2 sm:px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-all"
         >
           <Plus size={18} />
           <span className="hidden sm:inline">New Blueprint</span>

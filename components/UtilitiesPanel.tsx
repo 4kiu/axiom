@@ -141,9 +141,9 @@ const UtilitiesPanel: React.FC<UtilitiesPanelProps> = ({
 
   const getRecommendedIdentity = (s: number) => {
     const mins = s / 60;
-    if (mins >= 120) return { label: 'OVERDRIVE', color: 'text-violet-400', border: 'border-violet-500/30', bg: 'bg-violet-500/5' };
-    if (mins >= 80) return { label: 'NORMAL', color: 'text-emerald-400', border: 'border-emerald-500/30', bg: 'bg-emerald-500/5' };
-    if (mins >= 40) return { label: 'MAINTENANCE', color: 'text-amber-400', border: 'border-amber-500/30', bg: 'bg-amber-500/5' };
+    if (mins >= 110) return { label: 'OVERDRIVE', color: 'text-violet-400', border: 'border-violet-500/30', bg: 'bg-violet-500/5' };
+    if (mins >= 70) return { label: 'NORMAL', color: 'text-emerald-400', border: 'border-emerald-500/30', bg: 'bg-emerald-500/5' };
+    if (mins >= 30) return { label: 'MAINTENANCE', color: 'text-amber-400', border: 'border-amber-500/30', bg: 'bg-amber-500/5' };
     return { label: 'SURVIVAL', color: 'text-rose-400', border: 'border-rose-500/30', bg: 'bg-rose-500/5' };
   };
 
@@ -375,14 +375,14 @@ const UtilitiesPanel: React.FC<UtilitiesPanelProps> = ({
                 onClick={startStopwatch} 
                 className="py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold text-[10px] flex items-center justify-center gap-2 transition-all uppercase tracking-widest active:scale-95 shadow-lg shadow-emerald-500/10"
               >
-                <Play size={14} fill="currentColor" /> Activate Trace
+                <Play size={14} fill="currentColor" /> Activate
               </button>
             ) : (
               <button 
                 onClick={pauseStopwatch} 
                 className="py-3 bg-amber-600 hover:bg-amber-500 text-white rounded-lg font-bold text-[10px] flex items-center justify-center gap-2 transition-all uppercase tracking-widest active:scale-95 shadow-lg shadow-amber-500/10"
               >
-                <Pause size={14} fill="currentColor" /> Suspend Log
+                <Pause size={14} fill="currentColor" /> Suspend
               </button>
             )}
             <button 
