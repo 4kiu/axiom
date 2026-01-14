@@ -589,7 +589,9 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
           } : ex
         );
 
-        const members = updatedExercises.filter(ex => ex.supersetId === sid);
+        const members = updatedExercises.filter(ex => {
+           return ex.supersetId === sid;
+        });
         if (members.length === 2) {
           const idx1 = updatedExercises.findIndex(ex => ex.id === members[0].id);
           const idx2 = updatedExercises.findIndex(ex => ex.id === members[1].id);
@@ -631,9 +633,9 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
     } else {
       const parsed = parseFloat(filtered);
       if (!isNaN(parsed)) {
-        updateExercise(exerciseId, { [field]: parsed });
+        updateExercise(exerciseId, { [field]: parsed } as any);
       } else if (filtered === '') {
-        updateExercise(exerciseId, { [field]: 0 });
+        updateExercise(exerciseId, { [field]: 0 } as any);
       }
     }
   };
@@ -1087,7 +1089,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                       title="Add alternative exercise"
                     >
                       <Plus size={12} />
-                      {hasAlternatives && <span className="text-[9px] font-bold">{ex.alternatives.length}</span>}
+                      {hasAlternatives && <span className="text-[9px] font-bold">{ex.alternatives?.length}</span>}
                     </button>
                   </div>
 
