@@ -622,7 +622,7 @@ const App: React.FC = () => {
           <div className="flex items-center gap-3">
             <AxiomLogo className="w-8 h-8" />
             <div className="flex flex-col">
-              <h1 className="text-lg font-mono font-bold tracking-tight uppercase leading-none text-white">Axiom v2.4</h1>
+              <h1 className="text-lg font-mono font-bold tracking-tight uppercase leading-none text-white">Axiom v2.5</h1>
               <span className="text-[9px] text-neutral-500 font-mono uppercase tracking-tighter">Personal Intelligence OS</span>
             </div>
           </div>
@@ -811,7 +811,7 @@ const App: React.FC = () => {
         </div>
         <div className="flex gap-4">
           <span className={syncStatus !== 'idle' ? 'animate-pulse text-emerald-500' : ''}> {syncStatus !== 'idle' ? 'SYNC_ACTIVE' : 'IDENTITY_STABLE: OK'} </span>
-          <span>SYSTEM_VERSION: ALPHA_v2.4</span>
+          <span>SYSTEM_VERSION: ALPHA_v2.5</span>
         </div>
       </footer>
     </div>
