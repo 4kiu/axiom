@@ -763,6 +763,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
 
   const fetchLibraryImages = async () => {
     const staticAssets: DriveImage[] = [
+      { id: 'cd-cable-crossover', name: 'Cable Crossover', target: 'Chest', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768390272/Cable_Crossover_dcqpig.gif' },
       { id: 'cd-tri-dips', name: 'Triceps Dips', target: 'Triceps', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323758/Triceps_Dips_blox8a.gif' },
       { id: 'cd-seated-row', name: 'Seated Row', target: 'Back', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323755/Seated_Row_keb2jq.gif' },
       { id: 'cd-single-leg-press', name: 'Single Leg Press', target: 'Quads', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323756/Single_Leg_Press_tc5iq3.gif' },
@@ -787,7 +788,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
       { id: 'cd-cable-rev-fly', name: 'Cable Reverse Fly', target: 'Shoulders', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323746/Cable_Reverse_Fly_p9pvub.gif' },
       { id: 'cd-bw-squat', name: 'Bodyweight Squat', target: 'Quads', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323745/Bodyweight_Squat_qhp71r.gif' },
       { id: 'cd-hammer-curl', name: 'Hammer Curl', target: 'Biceps', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323746/Hammer_Curl_hcfsnr.gif' },
-      { id: 'cd-cable-wrist-curl', name: 'Cable Private URL', target: 'Forearms', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323746/Cable_Wrist_Curl_hivrn8.gif' },
+      { id: 'cd-cable-wrist-curl', name: 'Cable Wrist Curl', target: 'Forearms', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323746/Cable_Wrist_Curl_hivrn8.gif' },
       { id: 'cd-cable-front-raise', name: 'Cable Front Raise', target: 'Shoulders', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323746/Cable_Front_Raise_d4yxcp.gif' },
       { id: 'cd-bench-press', name: 'Bench Press', target: 'Chest', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323745/Bench_Press_v8oin9.gif' },
       { id: 'cd-bb-squat', name: 'Barbell Squat', target: 'Quads', directUrl: 'https://res.cloudinary.com/dziwxssi4/image/upload/v1768323745/Barbell_Squat_iz2u2r.gif' },
@@ -848,7 +849,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
 
   if (isCreating || editingPlanId) {
     return (
-      <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+      <div className="space-y-6 animate-in fade-in duration-300">
         <div className="flex justify-between items-center border-b border-neutral-800 pb-4">
           <div className="flex-1 max-w-xl flex items-center gap-2">
             <button 
