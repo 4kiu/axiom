@@ -7,8 +7,9 @@ import StatusPanel from './components/StatusPanel.tsx';
 import PointsCard from './components/PointsCard.tsx';
 import History from './components/History.tsx';
 import UtilitiesPanel from './components/UtilitiesPanel.tsx';
-import PlanBuilder from './components/PlanBuilder.tsx';
 import ConfirmationModal from './components/ConfirmationModal.tsx';
+// Fix: Import PlanBuilder to resolve component reference error
+import PlanBuilder from './components/PlanBuilder.tsx';
 import { 
   LayoutDashboard, 
   History as HistoryIcon, 
@@ -92,6 +93,7 @@ const App: React.FC = () => {
   const [entries, setEntries] = useState<WorkoutEntry[]>([]);
   const [plans, setPlans] = useState<WorkoutPlan[]>([]);
   const [isLogModalOpen, setIsLogModalOpen] = useState(false);
+  const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
   const [dashboardWeekOffset, setDashboardWeekOffset] = useState(0);
   const [preselectedLogData, setPreselectedLogData] = useState<{ date?: Date, identity?: IdentityState, editingEntry?: WorkoutEntry, initialPlanId?: string } | null>(null);
   const [exitWarning, setExitWarning] = useState(false);
@@ -260,12 +262,14 @@ const App: React.FC = () => {
       }
 
       // Check 'syncs' subfolder
+      // Fix: Declare syncsFolderId locally to resolve reference error
+      let syncsFolderId;
       const q_syncs = encodeURIComponent(`name = 'syncs' and '${folderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`);
       const listSyncsResponse = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q_syncs}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const syncsData = await listSyncsResponse.json();
-      const syncsFolderId = syncsData.files?.[0]?.id;
+      syncsFolderId = syncsData.files?.[0]?.id;
       if (!syncsFolderId) {
         setSyncStatus('idle');
         setHasImported(true);
@@ -344,7 +348,7 @@ const App: React.FC = () => {
   }, [entries, plans, accessToken, hasImported, performSync]);
 
   useEffect(() => {
-    if (!window.history.state) window.history.replaceState({ view, isSubPage: false, isLogOpen: false }, '');
+    if (!window.history.state) window.history.replaceState({ view, isSubPage: false, isLogOpen: false, isSyncOpen: false }, '');
     const handlePopState = (event: PopStateEvent) => {
       const state = event.state;
 
@@ -353,7 +357,7 @@ const App: React.FC = () => {
         const isLeavingEditor = !state || state.view !== 'plans' || !state.isSubPage;
         if (isLeavingEditor) {
           // Push current state back to keep user in editor and show confirmation alert
-          window.history.pushState({ view, isSubPage: true, isLogOpen: isLogModalOpen }, '');
+          window.history.pushState({ view, isSubPage: true, isLogOpen: isLogModalOpen, isSyncOpen: isSyncModalOpen }, '');
           setPendingView(state?.view || 'current');
           return;
         }
@@ -363,29 +367,33 @@ const App: React.FC = () => {
         setView(state.view);
         setIsPlanEditing(state.isSubPage || false);
         setIsLogModalOpen(state.isLogOpen || false);
+        setIsSyncModalOpen(state.isSyncOpen || false);
         if (!state.isSubPage) setEditingPlanId(null);
         setExitWarning(false);
       } else {
-        if (view === 'current' && !isPlanEditing && !isLogModalOpen) handleExitSequence();
-        else if (isLogModalOpen) {
+        if (view === 'current' && !isPlanEditing && !isLogModalOpen && !isSyncModalOpen) handleExitSequence();
+        else if (isSyncModalOpen) {
+          setIsSyncModalOpen(false);
+          window.history.replaceState({ view, isSubPage: isPlanEditing, isLogOpen: isLogModalOpen, isSyncOpen: false }, '');
+        } else if (isLogModalOpen) {
           setIsLogModalOpen(false);
-          window.history.replaceState({ view, isSubPage: isPlanEditing, isLogOpen: false }, '');
+          window.history.replaceState({ view, isSubPage: isPlanEditing, isLogOpen: false, isSyncOpen: isSyncModalOpen }, '');
         } else if (isPlanEditing) {
           setIsPlanEditing(false);
           setEditingPlanId(null);
-          window.history.replaceState({ view, isSubPage: false, isLogOpen: false }, '');
+          window.history.replaceState({ view, isSubPage: false, isLogOpen: false, isSyncOpen: isSyncModalOpen }, '');
         } else changeView('current');
       }
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, [view, isPlanEditing, isLogModalOpen, isDirty]);
+  }, [view, isPlanEditing, isLogModalOpen, isSyncModalOpen, isDirty]);
 
   const handleExitSequence = () => {
     if (exitWarning) window.history.back();
     else {
       setExitWarning(true);
-      window.history.pushState({ view: 'current', isSubPage: false, isLogOpen: false }, '');
+      window.history.pushState({ view: 'current', isSubPage: false, isLogOpen: false, isSyncOpen: false }, '');
       if (exitTimerRef.current) window.clearTimeout(exitTimerRef.current);
       exitTimerRef.current = window.setTimeout(() => setExitWarning(false), 3000) as unknown as number;
     }
@@ -410,14 +418,15 @@ const App: React.FC = () => {
     setIsPlanEditing(false);
     setEditingPlanId(null);
     setIsLogModalOpen(false);
-    window.history.pushState({ view: newView, isSubPage: false, isLogOpen: false }, '');
+    setIsSyncModalOpen(false);
+    window.history.pushState({ view: newView, isSubPage: false, isLogOpen: false, isSyncOpen: false }, '');
     localStorage.setItem(VIEW_STORAGE_KEY, newView);
   };
 
   const handlePlanEditorOpen = (planId: string | null) => {
     setIsPlanEditing(true);
     setEditingPlanId(planId);
-    window.history.pushState({ view: 'plans', isSubPage: true, isLogOpen: false }, '');
+    window.history.pushState({ view: 'plans', isSubPage: true, isLogOpen: false, isSyncOpen: false }, '');
   };
 
   const handlePlanEditorClose = () => { 
@@ -427,11 +436,22 @@ const App: React.FC = () => {
   const handleOpenLogModal = (data: { date?: Date, identity?: IdentityState, editingEntry?: WorkoutEntry, initialPlanId?: string } | null = null) => {
     setPreselectedLogData(data);
     setIsLogModalOpen(true);
-    window.history.pushState({ view, isSubPage: isPlanEditing, isLogOpen: true }, '');
+    window.history.pushState({ view, isSubPage: isPlanEditing, isLogOpen: true, isSyncOpen: false }, '');
   };
 
   const handleCloseLogModal = () => {
     if (isLogModalOpen) {
+      window.history.back();
+    }
+  };
+
+  const handleOpenSyncModal = () => {
+    setIsSyncModalOpen(true);
+    window.history.pushState({ view, isSubPage: isPlanEditing, isLogOpen: isLogModalOpen, isSyncOpen: true }, '');
+  };
+
+  const handleCloseSyncModal = () => {
+    if (isSyncModalOpen) {
       window.history.back();
     }
   };
@@ -478,14 +498,14 @@ const App: React.FC = () => {
 
   // Page level swipe handlers (View switching)
   const handlePageTouchStart = (e: React.TouchEvent) => {
-    if (isPlanEditing || isLogModalOpen) return;
+    if (isPlanEditing || isLogModalOpen || isSyncModalOpen) return;
     pageTouchStartX.current = e.targetTouches[0].clientX;
     pageTouchStartY.current = e.targetTouches[0].clientY;
     isSwipePrevented.current = false;
   };
 
   const handlePageTouchMove = (e: React.TouchEvent) => {
-    if (isPlanEditing || isLogModalOpen || isSwipePrevented.current) return;
+    if (isPlanEditing || isLogModalOpen || isSyncModalOpen || isSwipePrevented.current) return;
     
     const currentX = e.targetTouches[0].clientX;
     const currentY = e.targetTouches[0].clientY;
@@ -732,6 +752,9 @@ const App: React.FC = () => {
               onUpdatePlans={setPlans} 
               externalSyncStatus={syncStatus}
               onManualSync={() => accessToken && performSync(accessToken)}
+              isSyncBrowserOpen={isSyncModalOpen}
+              onOpenSyncBrowser={handleOpenSyncModal}
+              onCloseSyncBrowser={handleCloseSyncModal}
             />
           )}
         </div>
@@ -747,7 +770,7 @@ const App: React.FC = () => {
           }
         }}
         className={`fixed right-6 sm:right-8 z-[60] p-3 rounded-full shadow-2xl transition-all duration-300 active:scale-95 group backdrop-blur-sm
-        ${isFabSave || (showScrollTop && !isLogModalOpen) ? 'bottom-24 sm:bottom-12 opacity-100 scale-100' : 'bottom-12 opacity-0 scale-50 pointer-events-none'}
+        ${isFabSave || (showScrollTop && !isLogModalOpen && !isSyncModalOpen) ? 'bottom-24 sm:bottom-12 opacity-100 scale-100' : 'bottom-12 opacity-0 scale-50 pointer-events-none'}
         ${isFabSave ? 'bg-emerald-600 border border-emerald-500 text-white hover:bg-emerald-500' : 'bg-neutral-900 border border-neutral-700 text-neutral-200 hover:bg-white hover:text-black'}`}
         aria-label={isFabSave ? "Save Changes" : "Scroll to Top"}
       >

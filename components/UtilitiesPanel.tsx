@@ -45,6 +45,9 @@ interface UtilitiesPanelProps {
   onUpdatePlans: (plans: WorkoutPlan[]) => void;
   externalSyncStatus?: 'idle' | 'syncing' | 'loading' | 'success' | 'error' | 'importing';
   onManualSync?: () => void;
+  isSyncBrowserOpen?: boolean;
+  onOpenSyncBrowser?: () => void;
+  onCloseSyncBrowser?: () => void;
 }
 
 const UtilitiesPanel: React.FC<UtilitiesPanelProps> = ({ 
@@ -53,7 +56,10 @@ const UtilitiesPanel: React.FC<UtilitiesPanelProps> = ({
   onUpdateEntries, 
   onUpdatePlans,
   externalSyncStatus = 'idle',
-  onManualSync
+  onManualSync,
+  isSyncBrowserOpen = false,
+  onOpenSyncBrowser,
+  onCloseSyncBrowser
 }) => {
   const [accessToken, setAccessToken] = useState<string | null>(() => localStorage.getItem('axiom_sync_token'));
   const [userInfo, setUserInfo] = useState<{ name: string; email: string } | null>(() => {
@@ -65,7 +71,6 @@ const UtilitiesPanel: React.FC<UtilitiesPanelProps> = ({
   const [authError, setAuthError] = useState<string | null>(null);
 
   // Sync Browser state
-  const [isSyncBrowserOpen, setIsSyncBrowserOpen] = useState(false);
   const [syncFiles, setSyncFiles] = useState<DriveSyncFile[]>([]);
   const [loadingFiles, setLoadingFiles] = useState(false);
 
@@ -233,6 +238,7 @@ const UtilitiesPanel: React.FC<UtilitiesPanelProps> = ({
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       const syncsData = await listSyncs.json();
+      // Fix: Declare syncsFolderId to resolve reference error
       const syncsFolderId = syncsData.files?.[0]?.id;
       if (!syncsFolderId) {
         setAuthError("No 'syncs' folder found.");
@@ -265,7 +271,7 @@ const UtilitiesPanel: React.FC<UtilitiesPanelProps> = ({
         onUpdateEntries(manifest.data.entries || []);
         onUpdatePlans(manifest.data.plans || []);
         setLocalSyncStatus('success');
-        setIsSyncBrowserOpen(false);
+        onCloseSyncBrowser?.();
         setTimeout(() => setLocalSyncStatus('idle'), 2000);
       }
     } catch (e: any) {
@@ -279,7 +285,7 @@ const UtilitiesPanel: React.FC<UtilitiesPanelProps> = ({
       loginWithGoogle();
       return;
     }
-    setIsSyncBrowserOpen(true);
+    onOpenSyncBrowser?.();
     fetchSyncFilesList();
   };
 
@@ -315,6 +321,7 @@ const UtilitiesPanel: React.FC<UtilitiesPanelProps> = ({
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       const syncsData = await listSyncs.json();
+      // Fix: Declare syncsFolderId to resolve reference error
       const syncsFolderId = syncsData.files?.[0]?.id;
       if (!syncsFolderId) {
         setAuthError("No 'syncs' subfolder found.");
@@ -556,14 +563,14 @@ const UtilitiesPanel: React.FC<UtilitiesPanelProps> = ({
       {/* Sync Browser Modal */}
       {isSyncBrowserOpen && createPortal(
         <div className="fixed inset-0 z-[160] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/90 backdrop-blur-md" onClick={() => setIsSyncBrowserOpen(false)} />
+          <div className="absolute inset-0 bg-black/90 backdrop-blur-md" onClick={() => onCloseSyncBrowser?.()} />
           <div className="relative bg-neutral-900 border border-neutral-800 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             <div className="flex justify-between items-center p-4 border-b border-neutral-800">
               <div className="flex items-center gap-3">
                 <FileJson size={18} className="text-emerald-500" />
                 <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">Sync Archives</h3>
               </div>
-              <button onClick={() => setIsSyncBrowserOpen(false)} className="p-2 text-neutral-500 hover:text-white transition-colors">
+              <button onClick={() => onCloseSyncBrowser?.()} className="p-2 text-neutral-500 hover:text-white transition-colors">
                 <X size={20} />
               </button>
             </div>
