@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { WorkoutEntry, WorkoutPlan } from '../types.ts';
 import { 
   Settings, 
@@ -553,7 +554,7 @@ const UtilitiesPanel: React.FC<UtilitiesPanelProps> = ({
       </div>
 
       {/* Sync Browser Modal */}
-      {isSyncBrowserOpen && (
+      {isSyncBrowserOpen && createPortal(
         <div className="fixed inset-0 z-[160] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/90 backdrop-blur-md" onClick={() => setIsSyncBrowserOpen(false)} />
           <div className="relative bg-neutral-900 border border-neutral-800 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
@@ -601,7 +602,8 @@ const UtilitiesPanel: React.FC<UtilitiesPanelProps> = ({
               </p>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
