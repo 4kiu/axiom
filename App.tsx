@@ -885,7 +885,7 @@ const App: React.FC = () => {
             className="bg-amber-500 text-black px-4 sm:px-6 py-2.5 sm:py-3 rounded-full font-mono text-[9px] sm:text-[10px] font-bold uppercase tracking-tight sm:tracking-[0.1em] shadow-[0_0_20px_rgba(245,158,11,0.4)] shadow-2xl flex items-center justify-center gap-2 sm:gap-3 border border-white/20 hover:bg-amber-400 transition-colors"
           >
             <CloudOff size={14} className="shrink-0" />
-            <span>(Sync disabled: login now)</span>
+            <span>Sync disabled: login now</span>
           </button>
         </div>
       )}

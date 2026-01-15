@@ -22,7 +22,7 @@ interface StatisticsProps {
   onEditEntry?: (id: string) => void;
 }
 
-type RangeType = 7 | 14 | 30 | 60 | 120 | 'all';
+type RangeType = 7 | 14 | 30 | 60 | 'all';
 
 /**
  * Refined IntensityGraph component
@@ -108,11 +108,8 @@ const IntensityGraph: React.FC<{ entries: WorkoutEntry[], days: RangeType }> = (
         ))}
       </svg>
       
-      <div className="absolute bottom-3 left-6">
-         <span className="text-[6px] font-mono text-neutral-700 uppercase tracking-[0.4em]">system.load_distribution</span>
-      </div>
       <div className="absolute bottom-3 right-6 flex items-center gap-2">
-        <span className="text-[7px] font-mono text-neutral-600 uppercase tracking-[0.2em]">Live Trace Active</span>
+        <span className="text-[7px] font-mono text-neutral-600 uppercase tracking-[0.2em]">Trace Active</span>
         <div className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse" />
       </div>
     </div>
@@ -124,14 +121,14 @@ const Statistics: React.FC<StatisticsProps> = ({ entries, plans }) => {
     const saved = localStorage.getItem('axiom_stats_range');
     if (saved === 'all') return 'all';
     const parsed = parseInt(saved || '7');
-    return [7, 14, 30, 60, 120].includes(parsed) ? parsed as RangeType : 7;
+    return [7, 14, 30, 60].includes(parsed) ? parsed as RangeType : 7;
   });
 
   useEffect(() => {
     localStorage.setItem('axiom_stats_range', range.toString());
   }, [range]);
 
-  const ranges: RangeType[] = [7, 14, 30, 60, 120, 'all'];
+  const ranges: RangeType[] = [7, 14, 30, 60, 'all'];
 
   const stats = useMemo(() => {
     const now = new Date();
