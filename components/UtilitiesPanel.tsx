@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { WorkoutEntry, WorkoutPlan } from '../types.ts';
@@ -367,12 +366,17 @@ const UtilitiesPanel: React.FC<UtilitiesPanelProps> = ({
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500 pb-12 sm:pb-0 max-w-5xl mx-auto">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-neutral-800 pb-4">
-        <div className="flex items-center gap-4">
-          <Settings className="text-neutral-400" size={28} />
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 border-b border-neutral-800 pb-6">
+        <div className="flex items-center gap-5">
+          <div className="p-3 bg-neutral-900 border border-neutral-800 rounded-2xl shadow-lg">
+             <Settings className="text-white-500" size={28} />
+          </div>
           <div className="flex flex-col">
-            <h2 className="text-2xl font-bold text-white leading-none">Utilities</h2>
-            <p className="text-[10px] text-neutral-500 font-mono uppercase tracking-wider mt-1">System Configuration & Tools</p>
+            <h2 className="text-2xl font-black text-white leading-none tracking-tight uppercase">Utilities</h2>
+            <div className="flex items-center gap-2 mt-2">
+              <Zap size={10} className="text-emerald-500" />
+              <p className="text-[10px] text-neutral-500 font-mono uppercase tracking-widest">System Configuration & Tools</p>
+            </div>
           </div>
         </div>
       </div>
@@ -564,7 +568,7 @@ const UtilitiesPanel: React.FC<UtilitiesPanelProps> = ({
       {isSyncBrowserOpen && createPortal(
         <div className="fixed inset-0 z-[160] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/90 backdrop-blur-md" onClick={() => onCloseSyncBrowser?.()} />
-          <div className="relative bg-neutral-900 border border-neutral-800 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+          <div className="relative bg-neutral-900 border border-neutral-800 w-full max-md rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             <div className="flex justify-between items-center p-4 border-b border-neutral-800">
               <div className="flex items-center gap-3">
                 <FileJson size={18} className="text-emerald-500" />

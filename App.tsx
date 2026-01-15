@@ -1,18 +1,17 @@
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { IdentityState, WorkoutEntry, IDENTITY_METADATA, WorkoutPlan } from './types.ts';
 import WeeklyGrid from './components/WeeklyGrid.tsx';
 import LogAction from './components/LogAction.tsx';
 import StatusPanel from './components/StatusPanel.tsx';
 import PointsCard from './components/PointsCard.tsx';
-import History from './components/History.tsx';
+import Statistics from './components/Statistics.tsx';
 import UtilitiesPanel from './components/UtilitiesPanel.tsx';
 import ConfirmationModal from './components/ConfirmationModal.tsx';
 // Fix: Import PlanBuilder to resolve component reference error
 import PlanBuilder from './components/PlanBuilder.tsx';
 import { 
   LayoutDashboard, 
-  History as HistoryIcon, 
+  BarChart2, 
   Settings, 
   Plus, 
   ShieldAlert, 
@@ -34,6 +33,16 @@ import {
   Check
 } from 'lucide-react';
 import { format, addWeeks, addDays, isSameDay } from 'date-fns';
+
+declare var process: {
+  env: {
+    API_KEY: string;
+    GOOGLE_CLIENT_ID: string;
+    [key: string]: string | undefined;
+  };
+};
+
+declare const google: any;
 
 const STORAGE_KEY = 'axiom_os_data_v1';
 const PLANS_STORAGE_KEY = 'axiom_os_plans_v1';
@@ -112,6 +121,7 @@ const App: React.FC = () => {
   const pageTouchStartX = useRef<number | null>(null);
   const pageTouchStartY = useRef<number | null>(null);
   const pageTouchEndX = useRef<number | null>(null);
+  // Fix: Added missing const declaration for isSwipePrevented
   const isSwipePrevented = useRef<boolean>(false);
 
   const [hasImported, setHasImported] = useState(false);
@@ -123,6 +133,8 @@ const App: React.FC = () => {
   const syncQueued = useRef(false);
 
   const [saveTrigger, setSaveTrigger] = useState(0);
+  const [isReordering, setIsReordering] = useState(false);
+  const [reorderStopTrigger, setReorderStopTrigger] = useState(0);
 
   // Use a ref to always have access to the absolute latest data during sync cycles
   const latestDataRef = useRef({ entries, plans });
@@ -262,7 +274,6 @@ const App: React.FC = () => {
       }
 
       // Check 'syncs' subfolder
-      // Fix: Declare syncsFolderId locally to resolve reference error
       let syncsFolderId;
       const q_syncs = encodeURIComponent(`name = 'syncs' and '${folderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`);
       const listSyncsResponse = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q_syncs}`, {
@@ -341,6 +352,7 @@ const App: React.FC = () => {
   useEffect(() => {
     if (accessToken && hasImported) {
       const timeoutId = setTimeout(() => {
+        // Fix: Changed 'token' to 'accessToken' to resolve reference error
         performSync(accessToken);
       }, 1000); // Debounce reduced to 1s for better catch-up responsiveness
       return () => clearTimeout(timeoutId);
@@ -348,6 +360,7 @@ const App: React.FC = () => {
   }, [entries, plans, accessToken, hasImported, performSync]);
 
   useEffect(() => {
+    const isSwipePreventedRef = isSwipePrevented; // Capture ref for closure
     if (!window.history.state) window.history.replaceState({ view, isSubPage: false, isLogOpen: false, isSyncOpen: false }, '');
     const handlePopState = (event: PopStateEvent) => {
       const state = event.state;
@@ -421,6 +434,36 @@ const App: React.FC = () => {
     setIsSyncModalOpen(false);
     window.history.pushState({ view: newView, isSubPage: false, isLogOpen: false, isSyncOpen: false }, '');
     localStorage.setItem(VIEW_STORAGE_KEY, newView);
+  };
+
+  const loginWithGoogle = () => {
+    localStorage.setItem(LAST_ACTIVE_TS_KEY, Date.now().toString());
+    try {
+      if (typeof google !== 'undefined' && google.accounts?.oauth2) {
+        const clientId = process.env.GOOGLE_CLIENT_ID;
+        if (!clientId || clientId.includes("placeholder")) {
+          console.error("Configuration Missing: GOOGLE_CLIENT_ID environment variable is not set.");
+          return;
+        }
+
+        const client = google.accounts.oauth2.initTokenClient({
+          client_id: clientId,
+          scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
+          callback: (response: any) => {
+            if (response.access_token) {
+              const token = response.access_token;
+              setAccessToken(token);
+              localStorage.setItem('axiom_sync_token', token);
+              setSyncNotice(false);
+              window.location.reload(); 
+            }
+          }
+        });
+        client.requestAccessToken();
+      }
+    } catch (e: any) {
+      console.error(`System Error: ${e.message}`);
+    }
   };
 
   const handlePlanEditorOpen = (planId: string | null) => {
@@ -501,10 +544,12 @@ const App: React.FC = () => {
     if (isPlanEditing || isLogModalOpen || isSyncModalOpen) return;
     pageTouchStartX.current = e.targetTouches[0].clientX;
     pageTouchStartY.current = e.targetTouches[0].clientY;
+    // Fix: access ref via current property
     isSwipePrevented.current = false;
   };
 
   const handlePageTouchMove = (e: React.TouchEvent) => {
+    // Fix: access ref via current property
     if (isPlanEditing || isLogModalOpen || isSyncModalOpen || isSwipePrevented.current) return;
     
     const currentX = e.targetTouches[0].clientX;
@@ -516,6 +561,7 @@ const App: React.FC = () => {
     // If vertical movement is larger than horizontal, or there is significant vertical movement
     // mark the swipe as prevented until the touch is released.
     if (dy > dx || dy > 10) {
+      // Fix: access ref via current property
       isSwipePrevented.current = true;
       return;
     }
@@ -524,10 +570,12 @@ const App: React.FC = () => {
   };
 
   const handlePageTouchEnd = () => {
+    // Fix: access ref via current property
     if (!pageTouchStartX.current || !pageTouchEndX.current || isSwipePrevented.current) {
       pageTouchStartX.current = null;
       pageTouchStartY.current = null;
       pageTouchEndX.current = null;
+      // Fix: access ref via current property
       isSwipePrevented.current = false;
       return;
     }
@@ -547,6 +595,7 @@ const App: React.FC = () => {
     pageTouchStartX.current = null;
     pageTouchStartY.current = null;
     pageTouchEndX.current = null;
+    // Fix: access ref via current property
     isSwipePrevented.current = false;
   };
 
@@ -597,7 +646,7 @@ const App: React.FC = () => {
     <>
       <button onClick={() => changeView('current')} className={`px-4 sm:px-6 py-2 rounded-lg flex items-center justify-center transition-all ${view === 'current' ? 'bg-neutral-100 text-black' : 'hover:bg-neutral-800 text-neutral-400'}`}><LayoutDashboard size={22} /></button>
       <button onClick={() => changeView('plans')} className={`px-4 sm:px-6 py-2 rounded-lg flex items-center justify-center transition-all ${view === 'plans' ? 'bg-neutral-100 text-black' : 'hover:bg-neutral-800 text-neutral-400'}`}><BookOpen size={22} /></button>
-      <button onClick={() => changeView('history')} className={`px-4 sm:px-6 py-2 rounded-lg flex items-center justify-center transition-all ${view === 'history' ? 'bg-neutral-100 text-black' : 'hover:bg-neutral-800 text-neutral-400'}`}><HistoryIcon size={22} /></button>
+      <button onClick={() => changeView('history')} className={`px-4 sm:px-6 py-2 rounded-lg flex items-center justify-center transition-all ${view === 'history' ? 'bg-neutral-100 text-black' : 'hover:bg-neutral-800 text-neutral-400'}`}><BarChart2 size={22} /></button>
       <button onClick={() => changeView('discovery')} className={`px-4 sm:px-6 py-2 rounded-lg flex items-center justify-center transition-all ${view === 'discovery' ? 'bg-neutral-100 text-black' : 'hover:bg-neutral-800 text-neutral-400'}`}><Settings size={22} /></button>
     </>
   );
@@ -633,7 +682,8 @@ const App: React.FC = () => {
     );
   };
 
-  const isFabSave = isPlanEditing && isDirty;
+  const isFabConfirmReorder = isReordering;
+  const isFabSave = isPlanEditing && isDirty && !isReordering;
 
   return (
     <div 
@@ -739,11 +789,13 @@ const App: React.FC = () => {
               onOpenEditor={handlePlanEditorOpen} 
               onCloseEditor={handlePlanEditorClose} 
               onDirtyChange={setIsDirty}
+              onReorderModeChange={setIsReordering}
+              reorderStopTrigger={reorderStopTrigger}
               accessToken={accessToken}
               saveTrigger={saveTrigger}
             />
           )}
-          {view === 'history' && <History entries={entries} plans={plans} onEditEntry={handleEditEntry} />}
+          {view === 'history' && <Statistics entries={entries} plans={plans} onEditEntry={handleEditEntry} />}
           {view === 'discovery' && (
             <UtilitiesPanel 
               entries={entries} 
@@ -763,18 +815,20 @@ const App: React.FC = () => {
       
       <button 
         onClick={() => {
-          if (isFabSave) {
+          if (isFabConfirmReorder) {
+            setReorderStopTrigger(p => p + 1);
+          } else if (isFabSave) {
             setSaveTrigger(p => p + 1);
           } else {
             window.scrollTo({ top: 0, behavior: 'smooth' });
           }
         }}
         className={`fixed right-6 sm:right-8 z-[60] p-3 rounded-full shadow-2xl transition-all duration-300 active:scale-95 group backdrop-blur-sm
-        ${isFabSave || (showScrollTop && !isLogModalOpen && !isSyncModalOpen) ? 'bottom-24 sm:bottom-12 opacity-100 scale-100' : 'bottom-12 opacity-0 scale-50 pointer-events-none'}
-        ${isFabSave ? 'bg-emerald-600 border border-emerald-500 text-white hover:bg-emerald-500' : 'bg-neutral-900 border border-neutral-700 text-neutral-200 hover:bg-white hover:text-black'}`}
-        aria-label={isFabSave ? "Save Changes" : "Scroll to Top"}
+        ${isFabConfirmReorder || isFabSave || (showScrollTop && !isLogModalOpen && !isSyncModalOpen) ? 'bottom-24 sm:bottom-12 opacity-100 scale-100' : 'bottom-12 opacity-0 scale-50 pointer-events-none'}
+        ${isFabConfirmReorder ? 'bg-violet-600 border border-violet-500 text-white hover:bg-violet-500' : isFabSave ? 'bg-emerald-600 border border-emerald-500 text-white hover:bg-emerald-500' : 'bg-neutral-900 border border-neutral-700 text-neutral-200 hover:bg-white hover:text-black'}`}
+        aria-label={isFabConfirmReorder ? "Confirm Reorder" : isFabSave ? "Save Changes" : "Scroll to Top"}
       >
-        {isFabSave ? (
+        {isFabConfirmReorder || isFabSave ? (
           <Check size={24} className="animate-in zoom-in duration-300" />
         ) : (
           <ArrowUp size={24} className="group-hover:-translate-y-0.5 transition-transform" />
@@ -827,13 +881,11 @@ const App: React.FC = () => {
       {syncNotice && (
         <div className="fixed bottom-24 sm:bottom-8 left-0 right-0 px-4 z-[100] flex justify-center animate-in slide-in-from-bottom-4 fade-in duration-300">
           <button 
-            onClick={() => { setSyncNotice(false); changeView('discovery'); }} 
-            className="w-full sm:w-auto bg-amber-500 text-black px-4 sm:px-6 py-2.5 sm:py-3 rounded-full font-mono text-[9px] sm:text-[10px] font-bold uppercase tracking-tight sm:tracking-[0.1em] shadow-2xl flex items-center justify-center gap-2 sm:gap-3 border border-white/20 hover:bg-amber-400 transition-colors"
+            onClick={() => { loginWithGoogle(); }} 
+            className="bg-amber-500 text-black px-4 sm:px-6 py-2.5 sm:py-3 rounded-full font-mono text-[9px] sm:text-[10px] font-bold uppercase tracking-tight sm:tracking-[0.1em] shadow-[0_0_20px_rgba(245,158,11,0.4)] shadow-2xl flex items-center justify-center gap-2 sm:gap-3 border border-white/20 hover:bg-amber-400 transition-colors"
           >
             <CloudOff size={14} className="shrink-0" />
-            <span className="sm:hidden">Sync Disabled: Link Now</span>
-            <span className="hidden sm:inline">Cloud Sync Disabled: Data is Local Only</span>
-            <div className="hidden sm:block px-1.5 py-0.5 bg-black/20 rounded text-[8px]">Link Now</div>
+            <span>(Sync disabled: login now)</span>
           </button>
         </div>
       )}

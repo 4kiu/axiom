@@ -25,7 +25,10 @@ import {
   ChevronRight,
   Copy,
   Eye,
-  EyeOff
+  EyeOff,
+  GripVertical,
+  ArrowUpDown,
+  Zap
 } from 'lucide-react';
 
 // Component to handle authenticated Drive image loading via blob fetch
@@ -252,6 +255,8 @@ interface PlanBuilderProps {
   onOpenEditor?: (planId: string | null) => void;
   onCloseEditor?: () => void;
   onDirtyChange?: (isDirty: boolean) => void;
+  onReorderModeChange?: (active: boolean) => void;
+  reorderStopTrigger?: number;
   accessToken?: string | null;
   saveTrigger?: number;
 }
@@ -266,6 +271,8 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
   onOpenEditor,
   onCloseEditor,
   onDirtyChange,
+  onReorderModeChange,
+  reorderStopTrigger = 0,
   accessToken,
   saveTrigger = 0
 }) => {
@@ -284,6 +291,8 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [hideImages, setHideImages] = useState(false);
+  const [isReordering, setIsReordering] = useState(false);
+  const [isReorderingList, setIsReorderingList] = useState(false);
   const [isSavedMenuOpen, setIsSavedMenuOpen] = useState(false);
   const savedMenuContainerRef = useRef<HTMLDivElement>(null);
 
@@ -307,6 +316,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
         setInputStates({});
         setExpandedNotes({});
         initialPlanRef.current = null;
+        setIsReordering(false);
       } else {
         // If external says editing but internal doesn't have plan yet, populate it
         if (externalEditingPlanId && editingPlanId !== externalEditingPlanId) {
@@ -355,6 +365,19 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
       setLibrarySearch('');
     }
   }, [isLibraryOpen]);
+
+  // Sync reorder mode state to parent
+  useEffect(() => {
+    onReorderModeChange?.(isReordering || isReorderingList);
+  }, [isReordering, isReorderingList, onReorderModeChange]);
+
+  // Handle external reorder stop trigger
+  useEffect(() => {
+    if (reorderStopTrigger > 0) {
+      setIsReordering(false);
+      setIsReorderingList(false);
+    }
+  }, [reorderStopTrigger]);
 
   // Derive local dirty state for UI feedback (Save vs Saved)
   // useMemo prevents expensive stringify on every render when cycling fast
@@ -428,6 +451,43 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
       onUpdatePlans(plans.filter(p => p.id !== planToDeleteId));
       setPlanToDeleteId(null);
     }
+  };
+
+  // Drag and Drop Logic
+  const onDragStart = (e: React.DragEvent, index: number) => {
+    e.dataTransfer.setData('index', index.toString());
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const onDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const onDropPlan = (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault();
+    const fromIndexStr = e.dataTransfer.getData('index');
+    if (!fromIndexStr) return;
+    const fromIndex = parseInt(fromIndexStr);
+    if (fromIndex === targetIndex) return;
+    
+    const newPlans = [...plans];
+    const [moved] = newPlans.splice(fromIndex, 1);
+    newPlans.splice(targetIndex, 0, moved);
+    onUpdatePlans(newPlans);
+  };
+
+  const onDropExercise = (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault();
+    const fromIndexStr = e.dataTransfer.getData('index');
+    if (!fromIndexStr || !tempPlan.exercises) return;
+    const fromIndex = parseInt(fromIndexStr);
+    if (fromIndex === targetIndex) return;
+    
+    const newEx = [...tempPlan.exercises];
+    const [moved] = newEx.splice(fromIndex, 1);
+    newEx.splice(targetIndex, 0, moved);
+    setTempPlan(prev => ({ ...prev, exercises: newEx }));
   };
 
   const addExercise = () => {
@@ -855,7 +915,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
             <button 
               onClick={() => { 
                 if (onCloseEditor) onCloseEditor(); 
-                else { setIsCreating(false); setEditingPlanId(null); setInputStates({}); initialPlanRef.current = null; } 
+                else { setIsCreating(false); setEditingPlanId(null); setInputStates({}); initialPlanRef.current = null; setIsReordering(false); } 
               }} 
               className="p-2 -ml-2 text-neutral-500 hover:text-white transition-colors"
             >
@@ -872,6 +932,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                 onChange={(e) => setTempPlan({ ...tempPlan, name: e.target.value })}
                 className="bg-transparent border-none text-2xl font-bold text-white focus:ring-0 w-full placeholder-neutral-700 p-0 leading-tight"
                 placeholder="Blueprint Name..."
+                disabled={isReordering}
               />
               <input 
                 type="text"
@@ -879,6 +940,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                 onChange={(e) => setTempPlan({ ...tempPlan, description: e.target.value })}
                 className="bg-transparent border-none text-[10px] sm:text-xs text-neutral-500 font-mono focus:ring-0 p-0 uppercase tracking-wider mt-1"
                 placeholder="System objective"
+                disabled={isReordering}
               />
             </div>
           </div>
@@ -907,7 +969,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
               </button>
               
               {isSavedMenuOpen && !isDirty && (
-                <div className="absolute top-full right-0 mt-2 z-50 w-full origin-top animate-in fade-in zoom-in-90 slide-in-from-top-2 duration-200">
+                <div className="absolute top-full right-0 mt-2 z-50 w-full origin-top animate-in fade-in zoom-in-90 slide-in-from-top-2 duration-200 space-y-2">
                   <button
                     onClick={() => {
                       setHideImages(!hideImages);
@@ -921,6 +983,20 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                   >
                     {hideImages ? <Eye size={18} /> : <EyeOff size={18} />}
                     {hideImages ? 'Unhide' : 'Hide'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsReordering(!isReordering);
+                      setIsSavedMenuOpen(false);
+                    }}
+                    className={`w-full px-4 py-2 rounded-lg font-bold flex items-center justify-center gap-2 transition-all active:scale-95 shadow-2xl border whitespace-nowrap ${
+                      isReordering 
+                        ? 'bg-violet-400/10 text-violet-400 border-violet-400/20 hover:bg-violet-400/20' 
+                        : 'bg-neutral-800 text-white border-neutral-700 hover:bg-neutral-700'
+                    }`}
+                  >
+                    <ArrowUpDown size={18} />
+                    {isReordering ? 'Done' : 'Reorder'}
                   </button>
                 </div>
               )}
@@ -936,15 +1012,22 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
             return (
               <div 
                 key={ex.id} 
-                onTouchStart={e => setTouchStart(e.targetTouches[0].clientX)}
+                draggable={isReordering}
+                onDragStart={(e) => onDragStart(e, index)}
+                onDragOver={onDragOver}
+                onDrop={(e) => onDropExercise(e, index)}
+                onTouchStart={e => {
+                  if (isReordering) return;
+                  setTouchStart(e.targetTouches[0].clientX);
+                }}
                 onTouchEnd={e => {
-                  if (touchStart === null) return;
+                  if (touchStart === null || isReordering) return;
                   const touchEnd = e.changedTouches[0].clientX;
                   if (touchStart - touchEnd > 50) switchAlternative(ex.id, 1);
                   if (touchStart - touchEnd < -50) switchAlternative(ex.id, -1);
                   setTouchStart(null);
                 }}
-                className="bg-neutral-900 border border-neutral-800 rounded-xl flex flex-col group relative"
+                className={`bg-neutral-900 border border-neutral-800 rounded-xl flex flex-col group relative transition-all ${isReordering ? 'cursor-default' : ''}`}
               >
                 {/* Visual Stack Layers */}
                 {totalAlts >= 2 && (
@@ -954,7 +1037,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                   <div className="absolute inset-0 -translate-y-3.5 scale-x-[0.90] bg-neutral-900/40 border border-neutral-800 rounded-xl -z-20" />
                 )}
                 
-                {activePicker === ex.id && (
+                {activePicker === ex.id && !isReordering && (
                   <div className="absolute inset-0 z-50 bg-neutral-950/95 backdrop-blur-md p-3 flex flex-col animate-in fade-in zoom-in-95 duration-200 rounded-xl">
                     <div className="flex justify-between items-center mb-2">
                       <span className="text-[10px] font-mono text-neutral-400 uppercase tracking-widest">Select Target Muscle</span>
@@ -988,8 +1071,8 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                   {!hideImages && (
                     <div className="w-32 sm:w-44 shrink-0 flex flex-col animate-in fade-in duration-300">
                       <div 
-                        onClick={() => setViewingImageExId(ex.id)}
-                        className="relative w-full h-full sm:h-auto sm:aspect-square bg-neutral-950 border border-neutral-800 rounded-lg flex items-center justify-center overflow-hidden cursor-pointer hover:border-neutral-700 transition-all group/img"
+                        onClick={() => !isReordering && setViewingImageExId(ex.id)}
+                        className={`relative w-full h-full sm:h-auto sm:aspect-square bg-neutral-950 border border-neutral-800 rounded-lg flex items-center justify-center overflow-hidden transition-all group/img ${!isReordering ? 'cursor-pointer hover:border-neutral-700' : ''}`}
                       >
                         <SafeImage 
                           src={ex.image} 
@@ -1007,7 +1090,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
 
                   {/* Right: Primary Controls */}
                   <div className="flex-1 flex flex-col min-w-0 justify-between gap-2">
-                    <div className="flex items-center">
+                    <div className="flex items-center gap-2 w-full">
                       <input 
                         type="text"
                         value={ex.name}
@@ -1015,7 +1098,13 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                         onChange={(e) => updateExercise(ex.id, { name: e.target.value })}
                         className="bg-transparent border-none p-0 text-sm font-bold text-white w-full focus:ring-0 truncate"
                         placeholder="Exercise Title"
+                        disabled={isReordering}
                       />
+                      {isReordering && (
+                        <div className="text-neutral-500 cursor-grab active:cursor-grabbing p-1">
+                          <GripVertical size={18} />
+                        </div>
+                      )}
                     </div>
                     
                     <div className="grid grid-cols-2 gap-2 flex-1">
@@ -1024,6 +1113,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                         <button 
                           onClick={() => setActivePicker(ex.id)}
                           className="flex items-center justify-center bg-neutral-950 border border-neutral-800 rounded-lg h-full min-h-[36px] px-1 text-[10px] w-full hover:border-neutral-600 transition-all active:scale-95 group/btn"
+                          disabled={isReordering}
                         >
                           <span className="truncate">{ex.muscleType}</span>
                         </button>
@@ -1038,6 +1128,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                           onFocus={(e) => e.target.select()}
                           onChange={(e) => updateNumericField(ex.id, 'weight', e.target.value)}
                           className="bg-neutral-950 border border-neutral-800 rounded-lg h-full min-h-[36px] px-1 text-[10px] w-full focus:border-neutral-600 outline-none text-center transition-all"
+                          disabled={isReordering}
                         />
                       </div>
 
@@ -1050,6 +1141,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                           onFocus={(e) => e.target.select()}
                           onChange={(e) => updateNumericField(ex.id, 'sets', e.target.value)}
                           className="bg-neutral-950 border border-neutral-800 rounded-lg h-full min-h-[36px] px-1 text-[10px] w-full focus:border-neutral-600 outline-none text-center transition-all"
+                          disabled={isReordering}
                         />
                       </div>
 
@@ -1062,6 +1154,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                           onFocus={(e) => e.target.select()}
                           onChange={(e) => updateNumericField(ex.id, 'reps', e.target.value)}
                           className="bg-neutral-950 border border-neutral-800 rounded-lg h-full min-h-[36px] px-1 text-[10px] w-full focus:border-neutral-600 outline-none text-center transition-all"
+                          disabled={isReordering}
                         />
                       </div>
                     </div>
@@ -1078,6 +1171,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                         onChange={(e) => updateExercise(ex.id, { notes: e.target.value })}
                         className="bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1.5 text-[10px] w-full focus:border-neutral-700 outline-none min-h-[100px] leading-snug"
                         placeholder="Tempo, cues..."
+                        disabled={isReordering}
                       />
                     </div>
                   </div>
@@ -1086,7 +1180,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                 {/* Footer */}
                 <div className="p-2 border-t border-neutral-800/50 flex justify-end gap-2 items-center bg-black/10 relative z-10 rounded-b-xl">
                   <div className="group/plus relative flex items-center mr-auto">
-                    {totalAlts > 1 && (
+                    {totalAlts > 1 && !isReordering && (
                       <div className="absolute left-1/2 -translate-x-1/2 -top-10 flex gap-2 opacity-0 group-hover/plus:opacity-100 transition-opacity bg-neutral-900 rounded-lg p-1 border border-neutral-700 shadow-2xl z-20">
                          <button onClick={(e) => { e.stopPropagation(); switchAlternative(ex.id, -1); }} className="p-1 hover:bg-neutral-800 rounded text-neutral-400 hover:text-white"><ChevronLeft size={16}/></button>
                          <button onClick={(e) => { e.stopPropagation(); switchAlternative(ex.id, 1); }} className="p-1 hover:bg-neutral-800 rounded text-neutral-400 hover:text-white"><ChevronRight size={16}/></button>
@@ -1096,6 +1190,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                       onClick={(e) => { e.stopPropagation(); addAlternative(ex.id); }}
                       className={`p-1 h-6 rounded-md border transition-all flex items-center justify-center gap-1 ${hasAlternatives ? 'bg-neutral-300 border-neutral-300 text-black px-1.5' : 'bg-neutral-800 border-neutral-700 text-neutral-500 hover:text-emerald-500'}`}
                       title="Add alternative exercise"
+                      disabled={isReordering}
                     >
                       <Plus size={12} />
                       {hasAlternatives && <span className="text-[9px] font-bold">{ex.alternatives?.length}</span>}
@@ -1105,6 +1200,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                   <button 
                     onClick={() => toggleSuperset(ex.id)} 
                     className={`p-1 h-6 rounded-md border flex items-center gap-1 transition-all ${ex.supersetId ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500' : 'bg-neutral-800 border-neutral-700 text-neutral-500'}`}
+                    disabled={isReordering}
                   >
                     <Link size={12} />
                     {ex.supersetId && <span className="text-[9px] font-bold leading-none">{ex.supersetId}</span>}
@@ -1116,7 +1212,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                   >
                     <FileText size={12} />
                   </button>
-                  <button onClick={() => setExerciseToDeleteId(ex.id)} className="text-neutral-600 hover:text-rose-500 transition-colors p-1 h-6 flex items-center">
+                  <button onClick={() => setExerciseToDeleteId(ex.id)} className="text-neutral-600 hover:text-rose-500 transition-colors p-1 h-6 flex items-center" disabled={isReordering}>
                     <Trash2 size={13} />
                   </button>
                 </div>
@@ -1127,6 +1223,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
           <button 
             onClick={addExercise}
             className="border-2 border-dashed border-neutral-800 rounded-xl flex flex-col items-center justify-center p-4 hover:bg-neutral-900/50 hover:border-neutral-700 transition-all group min-h-[200px]"
+            disabled={isReordering}
           >
             <div className="w-10 h-10 rounded-full bg-neutral-900 flex items-center justify-center mb-3 border border-neutral-800 group-hover:scale-110 transition-transform">
               <Plus className="text-neutral-500" />
@@ -1222,7 +1319,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                       {loadingLibrary ? (
                         <div className="col-span-full py-20 flex flex-col items-center justify-center gap-4 opacity-50">
                           <Loader2 className="animate-spin text-emerald-500" size={32} />
-                          <span className="text-[10px] font-mono uppercase tracking-widest">Indexing Drive...</span>
+                          <span className="text-[10px] font-mono uppercase tracking-widest">Drive initialization...</span>
                         </div>
                       ) : filteredLibrary.length > 0 ? (
                         filteredLibrary.map(img => (
@@ -1300,23 +1397,36 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
 
   return (
     <div className="space-y-8">
-      <div className="flex justify-between items-center border-b border-neutral-800 pb-4">
-        <div className="flex items-center gap-4">
-          <div className="shrink-0">
-             <BookOpen className="text-neutral-500" size={28} />
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 border-b border-neutral-800 pb-6">
+        <div className="flex items-center gap-5">
+          <div className="p-3 bg-neutral-900 border border-neutral-800 rounded-2xl shadow-lg">
+             <BookOpen className="text-white-500" size={28} />
           </div>
           <div className="flex flex-col">
-            <h2 className="text-2xl font-bold text-white leading-none">Blueprints</h2>
-            <p className="text-[10px] sm:text-xs text-neutral-500 font-mono uppercase tracking-wider mt-1">Modular training profile creation</p>
+            <h2 className="text-2xl font-black text-white leading-none tracking-tight uppercase">Blueprints</h2>
+            <div className="flex items-center gap-2 mt-2">
+              <Zap size={10} className="text-emerald-500" />
+              <p className="text-[10px] text-neutral-500 font-mono uppercase tracking-widest">Modular training profile creation</p>
+            </div>
           </div>
         </div>
-        <button 
-          onClick={startNewPlan}
-          className="bg-neutral-300 hover:bg-neutral-200 text-black px-2 sm:px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-all"
-        >
-          <Plus size={18} />
-          <span className="hidden sm:inline">New Blueprint</span>
-        </button>
+        <div className="flex gap-2 w-full sm:w-auto">
+          <button 
+            onClick={() => setIsReorderingList(!isReorderingList)}
+            className={`px-2 sm:px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-all flex-1 sm:flex-none justify-center ${isReorderingList ? 'bg-violet-600 text-white' : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700 hover:text-white'}`}
+            title="Toggle List Reorder"
+          >
+            <ArrowUpDown size={18} />
+            <span className="hidden sm:inline">{isReorderingList ? 'Done' : 'Reorder'}</span>
+          </button>
+          <button 
+            onClick={startNewPlan}
+            className="bg-neutral-300 hover:bg-neutral-200 text-black px-2 sm:px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-all flex-1 sm:flex-none justify-center"
+          >
+            <Plus size={18} />
+            <span className="hidden sm:inline">New Blueprint</span>
+          </button>
+        </div>
       </div>
 
       <ConfirmationModal 
@@ -1338,40 +1448,59 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {plans.map((plan: WorkoutPlan) => (
+          {plans.map((plan: WorkoutPlan, planIndex: number) => (
             <div 
               key={plan.id} 
-              onClick={() => { if (onOpenEditor) onOpenEditor(plan.id); else { setEditingPlanId(plan.id); setTempPlan(plan); } }}
-              className="bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden group hover:border-neutral-700 transition-all shadow-xl cursor-pointer"
+              draggable={isReorderingList}
+              onDragStart={(e) => onDragStart(e, planIndex)}
+              onDragOver={onDragOver}
+              onDrop={(e) => onDropPlan(e, planIndex)}
+              onClick={() => { 
+                if (isReorderingList) return;
+                if (onOpenEditor) onOpenEditor(plan.id); 
+                else { setEditingPlanId(plan.id); setTempPlan(plan); } 
+              }}
+              className={`bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden group hover:border-neutral-700 transition-all shadow-xl ${isReorderingList ? 'cursor-default' : 'cursor-pointer'}`}
             >
               <div className="p-6">
                 <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <h3 className="text-lg font-bold text-white group-hover:text-emerald-400 transition-colors">{plan.name}</h3>
-                    <p className="text-xs text-neutral-500 font-mono mt-1">{plan.exercises.length} Active Modules</p>
+                  <div className="flex items-start gap-3">
+                    {isReorderingList && (
+                      <div className="p-1 cursor-grab active:cursor-grabbing text-neutral-600 border-r border-neutral-800 pr-2">
+                        <GripVertical size={20} />
+                      </div>
+                    )}
+                    <div>
+                      <h3 className="text-lg font-bold text-white group-hover:text-emerald-400 transition-colors">{plan.name}</h3>
+                      <p className="text-xs text-neutral-500 font-mono mt-1">{plan.exercises.length} Active Modules</p>
+                    </div>
                   </div>
                   <div className="flex gap-2">
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); onLogPlan?.(plan.id); }}
-                      title="Log this blueprint today"
-                      className="p-2 bg-emerald-950/40 hover:bg-emerald-900/60 rounded-lg text-emerald-400 hover:text-emerald-300 border border-emerald-500/20 transition-all"
-                    >
-                      <Activity size={16} />
-                    </button>
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); copyPlan(e, plan); }}
-                      title="Copy this blueprint"
-                      className="p-2 bg-neutral-800 hover:bg-neutral-700 rounded-lg text-neutral-400 hover:text-white border border-neutral-700/50 transition-all"
-                    >
-                      <Copy size={16} />
-                    </button>
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); deletePlan(plan.id); }}
-                      title="Delete blueprint"
-                      className="p-2 bg-neutral-800 hover:bg-rose-900/30 rounded-lg text-neutral-400 hover:text-rose-500 transition-all"
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                    {!isReorderingList && (
+                      <>
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); onLogPlan?.(plan.id); }}
+                          title="Log this blueprint today"
+                          className="p-2 bg-emerald-950/40 hover:bg-emerald-900/60 rounded-lg text-emerald-400 hover:text-emerald-300 border border-emerald-500/20 transition-all"
+                        >
+                          <Activity size={16} />
+                        </button>
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); copyPlan(e, plan); }}
+                          title="Copy this blueprint"
+                          className="p-2 bg-neutral-800 hover:bg-neutral-700 rounded-lg text-neutral-400 hover:text-white border border-neutral-700/50 transition-all"
+                        >
+                          <Copy size={16} />
+                        </button>
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); deletePlan(plan.id); }}
+                          title="Delete blueprint"
+                          className="p-2 bg-neutral-800 hover:bg-rose-900/30 rounded-lg text-neutral-400 hover:text-rose-500 transition-all"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -1408,7 +1537,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                     )}
                  </div>
                  <div className="text-[10px] font-mono text-emerald-500 hover:text-emerald-400 font-bold uppercase tracking-wider">
-                   Expand Blueprint &rarr;
+                   {isReorderingList ? 'Locked' : 'Expand Blueprint →'}
                  </div>
               </div>
             </div>
