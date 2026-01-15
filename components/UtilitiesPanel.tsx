@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { WorkoutEntry, WorkoutPlan } from '../types.ts';
 import { 
@@ -13,7 +14,10 @@ import {
   Play,
   Pause,
   RotateCcw,
-  Activity
+  Activity,
+  X,
+  FileJson,
+  ChevronRight
 } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -27,12 +31,17 @@ declare var process: {
 
 declare const google: any;
 
+interface DriveSyncFile {
+  id: string;
+  name: string;
+  createdTime: string;
+}
+
 interface UtilitiesPanelProps {
   entries: WorkoutEntry[];
   plans: WorkoutPlan[];
   onUpdateEntries: (entries: WorkoutEntry[]) => void;
   onUpdatePlans: (plans: WorkoutPlan[]) => void;
-  // Added 'importing' status to match App.tsx syncStatus literals
   externalSyncStatus?: 'idle' | 'syncing' | 'loading' | 'success' | 'error' | 'importing';
   onManualSync?: () => void;
 }
@@ -53,6 +62,11 @@ const UtilitiesPanel: React.FC<UtilitiesPanelProps> = ({
   const [localSyncStatus, setLocalSyncStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [customSyncName] = useState(() => `sync.${format(new Date(), 'ss.mm.HH.dd.MM.yyyy')}`);
   const [authError, setAuthError] = useState<string | null>(null);
+
+  // Sync Browser state
+  const [isSyncBrowserOpen, setIsSyncBrowserOpen] = useState(false);
+  const [syncFiles, setSyncFiles] = useState<DriveSyncFile[]>([]);
+  const [loadingFiles, setLoadingFiles] = useState(false);
 
   // Stopwatch state persisted in localStorage
   const [stopwatch, setStopwatch] = useState(() => {
@@ -85,8 +99,6 @@ const UtilitiesPanel: React.FC<UtilitiesPanelProps> = ({
       interval = window.setInterval(() => {
         setStopwatch(prev => {
           const newElapsed = prev.startTime ? Math.floor((Date.now() - prev.startTime) / 1000) : prev.elapsed;
-          // Sync current elapsed to storage occasionally if needed, 
-          // but we mainly rely on startTime for active sessions.
           return {
             ...prev,
             elapsed: newElapsed
@@ -143,7 +155,7 @@ const UtilitiesPanel: React.FC<UtilitiesPanelProps> = ({
     const mins = s / 60;
     if (mins >= 110) return { label: 'OVERDRIVE', color: 'text-violet-400', border: 'border-violet-500/30', bg: 'bg-violet-500/5' };
     if (mins >= 70) return { label: 'NORMAL', color: 'text-emerald-400', border: 'border-emerald-500/30', bg: 'bg-emerald-500/5' };
-    if (mins >= 30) return { label: 'MAINTENANCE', color: 'text-amber-400', border: 'border-amber-500/30', bg: 'bg-amber-500/5' };
+    if (mins >= 30) return { label: 'MAINTENANCE', color: 'text-amber-400', border: 'border-amber-500/30', bg: 'bg-emerald-500/5' };
     return { label: 'SURVIVAL', color: 'text-rose-400', border: 'border-rose-500/30', bg: 'bg-rose-500/5' };
   };
 
@@ -198,6 +210,78 @@ const UtilitiesPanel: React.FC<UtilitiesPanelProps> = ({
     }
   };
 
+  const fetchSyncFilesList = async () => {
+    if (!accessToken) return;
+    setLoadingFiles(true);
+    setAuthError(null);
+    try {
+      const q_folder = encodeURIComponent("name = 'Axiom' and mimeType = 'application/vnd.google-apps.folder' and trashed = false");
+      const listFolder = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q_folder}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const folderData = await listFolder.json();
+      const folderId = folderData.files?.[0]?.id;
+      if (!folderId) {
+        setAuthError("No Axiom folder found.");
+        setLoadingFiles(false);
+        return;
+      }
+
+      const q_syncs = encodeURIComponent(`name = 'syncs' and '${folderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`);
+      const listSyncs = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q_syncs}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const syncsData = await listSyncs.json();
+      const syncsFolderId = syncsData.files?.[0]?.id;
+      if (!syncsFolderId) {
+        setAuthError("No 'syncs' folder found.");
+        setLoadingFiles(false);
+        return;
+      }
+
+      const q = encodeURIComponent(`'${syncsFolderId}' in parents and name contains "sync." and trashed = false`);
+      const listResponse = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=20&fields=files(id,name,createdTime)`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const listData = await listResponse.json();
+      setSyncFiles(listData.files || []);
+    } catch (e: any) {
+      setAuthError(`Failed to fetch sync archive: ${e.message}`);
+    } finally {
+      setLoadingFiles(false);
+    }
+  };
+
+  const importSelectedFile = async (fileId: string) => {
+    if (!accessToken) return;
+    setLocalSyncStatus('loading');
+    try {
+      const fileResponse = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const manifest = await fileResponse.json();
+      if (manifest.data) {
+        onUpdateEntries(manifest.data.entries || []);
+        onUpdatePlans(manifest.data.plans || []);
+        setLocalSyncStatus('success');
+        setIsSyncBrowserOpen(false);
+        setTimeout(() => setLocalSyncStatus('idle'), 2000);
+      }
+    } catch (e: any) {
+      setAuthError(`Import Failure: ${e.message}`);
+      setLocalSyncStatus('error');
+    }
+  };
+
+  const openSyncBrowser = () => {
+    if (!accessToken) {
+      loginWithGoogle();
+      return;
+    }
+    setIsSyncBrowserOpen(true);
+    fetchSyncFilesList();
+  };
+
   const handleLogout = () => {
     setAccessToken(null);
     setUserInfo(null);
@@ -225,7 +309,6 @@ const UtilitiesPanel: React.FC<UtilitiesPanelProps> = ({
         return;
       }
 
-      // Look in 'syncs' subfolder
       const q_syncs = encodeURIComponent(`name = 'syncs' and '${folderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`);
       const listSyncs = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q_syncs}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -287,7 +370,6 @@ const UtilitiesPanel: React.FC<UtilitiesPanelProps> = ({
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
-        {/* Stopwatch Utility Card */}
         <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6 shadow-xl space-y-5">
           <div className="flex justify-between items-center">
             <h3 className="text-sm font-bold text-white flex items-center gap-2">
@@ -310,12 +392,10 @@ const UtilitiesPanel: React.FC<UtilitiesPanelProps> = ({
           </div>
 
           <div className="relative group overflow-hidden bg-black rounded-2xl border border-neutral-800 py-8 flex flex-col items-center justify-center shadow-inner">
-            {/* Background decorative elements */}
             <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle, #8b5cf6 1px, transparent 1px)', backgroundSize: '16px 16px' }} />
             <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-neutral-700 to-transparent opacity-50" />
             <div className="absolute bottom-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-neutral-700 to-transparent opacity-50" />
             
-            {/* Calibration lines */}
             <div className="absolute top-2 left-1/2 -translate-x-1/2 flex gap-1 items-center opacity-30">
               <div className="w-[1px] h-1 bg-neutral-500" />
               <div className="w-[1px] h-1 bg-neutral-500" />
@@ -442,10 +522,13 @@ const UtilitiesPanel: React.FC<UtilitiesPanelProps> = ({
 
           <div className="space-y-2">
             <label className="text-[9px] font-mono text-neutral-600 uppercase tracking-widest block">Manifest Trace</label>
-            <div className={`bg-black/40 border rounded-lg p-3 text-[10px] font-mono flex items-center gap-2 transition-colors ${externalSyncStatus === 'importing' || externalSyncStatus === 'syncing' ? 'border-emerald-500/50 text-emerald-400' : 'border-neutral-800 text-neutral-500'}`}>
+            <button 
+              onClick={openSyncBrowser}
+              className={`w-full text-left bg-black/40 border rounded-lg p-3 text-[10px] font-mono flex items-center gap-2 transition-all hover:bg-black/60 hover:border-neutral-700 ${externalSyncStatus === 'importing' || externalSyncStatus === 'syncing' ? 'border-emerald-500/50 text-emerald-400' : 'border-neutral-800 text-neutral-500'}`}
+            >
               <RefreshCw size={12} className={externalSyncStatus !== 'idle' && externalSyncStatus !== 'success' && externalSyncStatus !== 'error' ? 'animate-spin text-emerald-500' : ''} />
               <span className="truncate font-bold tracking-tight">{getSyncDisplayText()}</span>
-            </div>
+            </button>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -468,6 +551,58 @@ const UtilitiesPanel: React.FC<UtilitiesPanelProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Sync Browser Modal */}
+      {isSyncBrowserOpen && (
+        <div className="fixed inset-0 z-[160] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/90 backdrop-blur-md" onClick={() => setIsSyncBrowserOpen(false)} />
+          <div className="relative bg-neutral-900 border border-neutral-800 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center p-4 border-b border-neutral-800">
+              <div className="flex items-center gap-3">
+                <FileJson size={18} className="text-emerald-500" />
+                <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">Sync Archives</h3>
+              </div>
+              <button onClick={() => setIsSyncBrowserOpen(false)} className="p-2 text-neutral-500 hover:text-white transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="max-h-[60vh] overflow-y-auto p-2 space-y-1">
+              {loadingFiles ? (
+                <div className="py-20 flex flex-col items-center justify-center gap-4 opacity-50">
+                  <RefreshCw className="animate-spin text-emerald-500" size={32} />
+                  <span className="text-[10px] font-mono uppercase tracking-widest">Indexing /Axiom/syncs...</span>
+                </div>
+              ) : syncFiles.length > 0 ? (
+                syncFiles.map(file => (
+                  <button
+                    key={file.id}
+                    onClick={() => importSelectedFile(file.id)}
+                    className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-white/5 border border-transparent hover:border-neutral-800 transition-all text-left group"
+                  >
+                    <div className="flex flex-col">
+                      <span className="text-[11px] font-mono text-neutral-300 font-bold group-hover:text-emerald-400 transition-colors">{file.name}</span>
+                      <span className="text-[9px] font-mono text-neutral-600 uppercase mt-0.5">{format(new Date(file.createdTime), 'MMM dd, yyyy HH:mm:ss')}</span>
+                    </div>
+                    <ChevronRight size={14} className="text-neutral-700 group-hover:text-white transition-colors" />
+                  </button>
+                ))
+              ) : (
+                <div className="py-20 text-center opacity-30">
+                  <span className="text-[10px] font-mono uppercase tracking-widest">No sync manifests found</span>
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 border-t border-neutral-800 bg-neutral-950/50">
+              <p className="text-[9px] font-mono text-neutral-600 uppercase text-center leading-relaxed">
+                Select a manifest to roll back the system state. <br/>
+                Warning: This replaces all current local training data.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

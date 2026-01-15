@@ -29,7 +29,8 @@ import {
   RefreshCw,
   AlertTriangle,
   CheckCircle2,
-  ArrowUp
+  ArrowUp,
+  Check
 } from 'lucide-react';
 import { format, addWeeks, addDays, isSameDay } from 'date-fns';
 
@@ -118,6 +119,8 @@ const App: React.FC = () => {
   const lastKnownSyncTs = useRef<number>(Number(localStorage.getItem(LAST_SYNC_TS_KEY) || 0));
   const isSyncInProgress = useRef(false);
   const syncQueued = useRef(false);
+
+  const [saveTrigger, setSaveTrigger] = useState(0);
 
   // Use a ref to always have access to the absolute latest data during sync cycles
   const latestDataRef = useRef({ entries, plans });
@@ -610,6 +613,8 @@ const App: React.FC = () => {
     );
   };
 
+  const isFabSave = isPlanEditing && isDirty;
+
   return (
     <div 
       className="min-h-screen bg-[#121212] text-neutral-200 flex flex-col font-sans pb-20 sm:pb-0 select-none"
@@ -715,6 +720,7 @@ const App: React.FC = () => {
               onCloseEditor={handlePlanEditorClose} 
               onDirtyChange={setIsDirty}
               accessToken={accessToken}
+              saveTrigger={saveTrigger}
             />
           )}
           {view === 'history' && <History entries={entries} plans={plans} onEditEntry={handleEditEntry} />}
@@ -733,12 +739,23 @@ const App: React.FC = () => {
       <nav className={`sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#121212]/95 backdrop-blur-xl border-t border-neutral-800 px-6 py-4 flex justify-between items-center transition-transform duration-300 ease-in-out ${isNavVisible ? 'translate-y-0' : 'translate-y-full'}`}><NavItems /></nav>
       
       <button 
-        onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-        className={`fixed right-6 sm:right-8 z-[60] bg-neutral-900 border border-neutral-700 p-3 rounded-full shadow-2xl transition-all duration-300 hover:bg-white hover:text-black active:scale-95 group backdrop-blur-sm
-        ${showScrollTop && !isLogModalOpen ? 'bottom-24 sm:bottom-12 opacity-100 scale-100' : 'bottom-12 opacity-0 scale-50 pointer-events-none'}`}
-        aria-label="Scroll to Top"
+        onClick={() => {
+          if (isFabSave) {
+            setSaveTrigger(p => p + 1);
+          } else {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }
+        }}
+        className={`fixed right-6 sm:right-8 z-[60] p-3 rounded-full shadow-2xl transition-all duration-300 active:scale-95 group backdrop-blur-sm
+        ${isFabSave || (showScrollTop && !isLogModalOpen) ? 'bottom-24 sm:bottom-12 opacity-100 scale-100' : 'bottom-12 opacity-0 scale-50 pointer-events-none'}
+        ${isFabSave ? 'bg-emerald-600 border border-emerald-500 text-white hover:bg-emerald-500' : 'bg-neutral-900 border border-neutral-700 text-neutral-200 hover:bg-white hover:text-black'}`}
+        aria-label={isFabSave ? "Save Changes" : "Scroll to Top"}
       >
-        <ArrowUp size={24} className="group-hover:-translate-y-0.5 transition-transform" />
+        {isFabSave ? (
+          <Check size={24} className="animate-in zoom-in duration-300" />
+        ) : (
+          <ArrowUp size={24} className="group-hover:-translate-y-0.5 transition-transform" />
+        )}
       </button>
 
       {isLogModalOpen && (

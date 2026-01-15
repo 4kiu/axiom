@@ -37,9 +37,13 @@ const PointsCard: React.FC<PointsCardProps> = ({ entries, weekStart }) => {
           basePoints += 3;
         }
 
-        // Energy Bonus (+1 for level 4 or 5)
-        if (e.energy >= 4) {
+        // Training Intensity Bonus
+        if (e.energy === 3) {
           energyBonus += 1;
+        } else if (e.energy === 4) {
+          energyBonus += 2;
+        } else if (e.energy === 5) {
+          energyBonus += 4;
         }
       });
 
@@ -130,7 +134,7 @@ const PointsCard: React.FC<PointsCardProps> = ({ entries, weekStart }) => {
           
           <div className="flex justify-between items-center text-[10px] font-mono uppercase p-2 rounded-lg border border-white/10">
             <span className="text-neutral-500">
-                Overdrive {calculation.odCount >= 2 ? `(T${calculation.odCount >= 3 ? '3' : '2'})` : 'Link'}
+                Overdrive {calculation.odCount >= 2 ? `Multiplier (T${calculation.odCount >= 3 ? '3' : '2'})` : ''}
             </span>
             <span className={calculation.odCount >= 2 ? "text-violet-400 font-bold" : "text-neutral-300"}>
                 +{calculation.odPoints} XP
@@ -138,7 +142,7 @@ const PointsCard: React.FC<PointsCardProps> = ({ entries, weekStart }) => {
           </div>
 
           <div className="flex justify-between items-center text-[10px] font-mono uppercase p-2 rounded-lg border border-white/10">
-            <span className="text-neutral-500">Pre-Training Energy</span>
+            <span className="text-neutral-500">Training Intensity</span>
             <span className={calculation.energyBonus > 0 ? "text-emerald-400 font-bold" : "text-neutral-300"}>
                 +{calculation.energyBonus} XP
             </span>

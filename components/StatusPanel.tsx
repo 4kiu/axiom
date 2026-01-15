@@ -143,7 +143,7 @@ const StatusPanel: React.FC<StatusPanelProps> = ({ entries, onAction }) => {
           </div>
           <div className="space-y-1">
             <div className="text-[9px] font-mono text-neutral-600 uppercase flex items-center gap-1">
-              <Flame size={10} className={currentStreak > 0 ? "text-orange-500" : "text-neutral-700"} /> Constancy Streak
+              <Flame size={10} className={currentStreak > 0 ? "text-orange-500" : "text-neutral-700"} /> Consistency Streak
             </div>
             <div className="text-lg font-bold text-white tracking-tight">
               {currentStreak} <span className="text-[10px] text-neutral-500 font-normal">DYS</span>
@@ -153,9 +153,9 @@ const StatusPanel: React.FC<StatusPanelProps> = ({ entries, onAction }) => {
 
         <div className="space-y-2">
           <div className="flex justify-between items-center">
-            <span className="text-[9px] font-mono text-neutral-500 uppercase tracking-wider">Continuity Goal</span>
+            <span className="text-[9px] font-mono text-neutral-500 uppercase tracking-wider">Continuity</span>
             <span className={`text-[9px] font-mono uppercase font-bold ${currentStreak >= 6 ? 'text-emerald-400' : 'text-neutral-600'}`}>
-              {currentStreak >= 6 ? 'Peak Bonus Active' : `${currentStreak}/6 Days to +5 XP`}
+              {currentStreak >= 6 ? 'Locked-in' : currentStreak >= 3 ? 'Consistent' : currentStreak >= 1 ? 'Steady' : ''}
             </span>
           </div>
           <div className="grid grid-cols-6 gap-1.5 h-1.5">

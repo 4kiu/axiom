@@ -253,6 +253,7 @@ interface PlanBuilderProps {
   onCloseEditor?: () => void;
   onDirtyChange?: (isDirty: boolean) => void;
   accessToken?: string | null;
+  saveTrigger?: number;
 }
 
 const PlanBuilder: React.FC<PlanBuilderProps> = ({ 
@@ -265,7 +266,8 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
   onOpenEditor,
   onCloseEditor,
   onDirtyChange,
-  accessToken
+  accessToken,
+  saveTrigger = 0
 }) => {
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
@@ -410,6 +412,12 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
     onDirtyChange?.(false);
     setTempPlan({ ...tempPlan });
   };
+
+  useEffect(() => {
+    if (saveTrigger > 0 && isDirty) {
+      savePlan();
+    }
+  }, [saveTrigger]);
 
   const deletePlan = (id: string) => {
     setPlanToDeleteId(id);

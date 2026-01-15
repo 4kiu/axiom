@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { WorkoutEntry, IdentityState, WorkoutPlan } from '../types.ts';
 import { GoogleGenAI } from '@google/genai';
@@ -14,7 +15,10 @@ import {
   RefreshCw,
   Link,
   LogOut,
-  Zap
+  Zap,
+  X,
+  FileJson,
+  ChevronRight
 } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -28,12 +32,17 @@ declare var process: {
 
 declare const google: any;
 
+interface DriveSyncFile {
+  id: string;
+  name: string;
+  createdTime: string;
+}
+
 interface DiscoveryPanelProps {
   entries: WorkoutEntry[];
   plans: WorkoutPlan[];
   onUpdateEntries: (entries: WorkoutEntry[]) => void;
   onUpdatePlans: (plans: WorkoutPlan[]) => void;
-  // Added 'importing' status to match App.tsx syncStatus literals
   externalSyncStatus?: 'idle' | 'syncing' | 'loading' | 'success' | 'error' | 'importing';
   onManualSync?: () => void;
 }
@@ -57,6 +66,11 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
   const [customSyncName] = useState(() => `sync.${format(new Date(), 'ss.mm.HH.dd.MM.yyyy')}`);
   const [authError, setAuthError] = useState<string | null>(null);
 
+  // Sync Browser state
+  const [isSyncBrowserOpen, setIsSyncBrowserOpen] = useState(false);
+  const [syncFiles, setSyncFiles] = useState<DriveSyncFile[]>([]);
+  const [loadingFiles, setLoadingFiles] = useState(false);
+
   useEffect(() => {
     // Keep last active timestamp updated
     localStorage.setItem('axiom_last_active_ts', Date.now().toString());
@@ -75,7 +89,6 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
         setUserInfo(profile);
         localStorage.setItem('axiom_sync_profile', JSON.stringify(profile));
       } else if (response.status === 401) {
-        // Remember logged in account: keep profile but clear the stale token
         setAccessToken(null);
         localStorage.removeItem('axiom_sync_token');
       }
@@ -126,6 +139,78 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
     window.location.reload();
   };
 
+  const fetchSyncFilesList = async () => {
+    if (!accessToken) return;
+    setLoadingFiles(true);
+    setAuthError(null);
+    try {
+      const q_folder = encodeURIComponent("name = 'Axiom' and mimeType = 'application/vnd.google-apps.folder' and trashed = false");
+      const listFolder = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q_folder}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const folderData = await listFolder.json();
+      const folderId = folderData.files?.[0]?.id;
+      if (!folderId) {
+        setAuthError("No Axiom folder found.");
+        setLoadingFiles(false);
+        return;
+      }
+
+      const q_syncs = encodeURIComponent(`name = 'syncs' and '${folderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`);
+      const listSyncs = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q_syncs}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const syncsData = await listSyncs.json();
+      const syncsFolderId = syncsData.files?.[0]?.id;
+      if (!syncsFolderId) {
+        setAuthError("No 'syncs' folder found.");
+        setLoadingFiles(false);
+        return;
+      }
+
+      const q = encodeURIComponent(`'${syncsFolderId}' in parents and name contains "sync." and trashed = false`);
+      const listResponse = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=20&fields=files(id,name,createdTime)`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const listData = await listResponse.json();
+      setSyncFiles(listData.files || []);
+    } catch (e: any) {
+      setAuthError(`Failed to fetch sync archive: ${e.message}`);
+    } finally {
+      setLoadingFiles(false);
+    }
+  };
+
+  const importSelectedFile = async (fileId: string) => {
+    if (!accessToken) return;
+    setLocalSyncStatus('loading');
+    try {
+      const fileResponse = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const manifest = await fileResponse.json();
+      if (manifest.data) {
+        onUpdateEntries(manifest.data.entries || []);
+        onUpdatePlans(manifest.data.plans || []);
+        setLocalSyncStatus('success');
+        setIsSyncBrowserOpen(false);
+        setTimeout(() => setLocalSyncStatus('idle'), 2000);
+      }
+    } catch (e: any) {
+      setAuthError(`Import Failure: ${e.message}`);
+      setLocalSyncStatus('error');
+    }
+  };
+
+  const openSyncBrowser = () => {
+    if (!accessToken) {
+      loginWithGoogle();
+      return;
+    }
+    setIsSyncBrowserOpen(true);
+    fetchSyncFilesList();
+  };
+
   const loadLatestSync = async () => {
     if (!accessToken) return loginWithGoogle();
     localStorage.setItem('axiom_last_active_ts', Date.now().toString());
@@ -143,7 +228,6 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
         return;
       }
 
-      // Look in 'syncs' subfolder
       const q_syncs = encodeURIComponent(`name = 'syncs' and '${folderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`);
       const listSyncs = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q_syncs}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -191,12 +275,9 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
     }
     setLoading(true);
     try {
-      // Initializing GoogleGenAI client with environment variable API key.
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const prompt = `Act as an elite sports scientist. Analyze these training logs for patterns, fatigue accumulation, and identity state transitions. Provide a concise executive summary. Data: ${JSON.stringify(entries.slice(-15))}`;
-      // Always use ai.models.generateContent with model name and prompt.
       const response = await ai.models.generateContent({ model: 'gemini-3-pro-preview', contents: prompt });
-      // Use response.text property directly, do not call as a method.
       setAnalysis(response.text || "No insights found.");
     } catch (error) {
       setAnalysis("Discovery engine failure.");
@@ -290,10 +371,13 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
 
             <div className="space-y-2">
               <label className="text-[9px] font-mono text-neutral-600 uppercase tracking-widest block">Manifest Trace</label>
-              <div className={`bg-black/40 border rounded-lg p-3 text-[10px] font-mono flex items-center gap-2 transition-colors ${externalSyncStatus === 'importing' || externalSyncStatus === 'syncing' ? 'border-emerald-500/50 text-emerald-400' : 'border-neutral-800 text-neutral-500'}`}>
+              <button 
+                onClick={openSyncBrowser}
+                className={`w-full text-left bg-black/40 border rounded-lg p-3 text-[10px] font-mono flex items-center gap-2 transition-all hover:bg-black/60 hover:border-neutral-700 ${externalSyncStatus === 'importing' || externalSyncStatus === 'syncing' ? 'border-emerald-500/50 text-emerald-400' : 'border-neutral-800 text-neutral-500'}`}
+              >
                 <RefreshCw size={12} className={externalSyncStatus !== 'idle' && externalSyncStatus !== 'success' && externalSyncStatus !== 'error' ? 'animate-spin text-emerald-500' : ''} />
                 <span className="truncate font-bold tracking-tight">{getSyncDisplayText()}</span>
-              </div>
+              </button>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -317,6 +401,58 @@ const DiscoveryPanel: React.FC<DiscoveryPanelProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Sync Browser Modal */}
+      {isSyncBrowserOpen && (
+        <div className="fixed inset-0 z-[160] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/90 backdrop-blur-md" onClick={() => setIsSyncBrowserOpen(false)} />
+          <div className="relative bg-neutral-900 border border-neutral-800 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center p-4 border-b border-neutral-800">
+              <div className="flex items-center gap-3">
+                <FileJson size={18} className="text-emerald-500" />
+                <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">Sync Archives</h3>
+              </div>
+              <button onClick={() => setIsSyncBrowserOpen(false)} className="p-2 text-neutral-500 hover:text-white transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="max-h-[60vh] overflow-y-auto p-2 space-y-1">
+              {loadingFiles ? (
+                <div className="py-20 flex flex-col items-center justify-center gap-4 opacity-50">
+                  <RefreshCw className="animate-spin text-emerald-500" size={32} />
+                  <span className="text-[10px] font-mono uppercase tracking-widest">Indexing /Axiom/syncs...</span>
+                </div>
+              ) : syncFiles.length > 0 ? (
+                syncFiles.map(file => (
+                  <button
+                    key={file.id}
+                    onClick={() => importSelectedFile(file.id)}
+                    className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-white/5 border border-transparent hover:border-neutral-800 transition-all text-left group"
+                  >
+                    <div className="flex flex-col">
+                      <span className="text-[11px] font-mono text-neutral-300 font-bold group-hover:text-emerald-400 transition-colors">{file.name}</span>
+                      <span className="text-[9px] font-mono text-neutral-600 uppercase mt-0.5">{format(new Date(file.createdTime), 'MMM dd, yyyy HH:mm:ss')}</span>
+                    </div>
+                    <ChevronRight size={14} className="text-neutral-700 group-hover:text-white transition-colors" />
+                  </button>
+                ))
+              ) : (
+                <div className="py-20 text-center opacity-30">
+                  <span className="text-[10px] font-mono uppercase tracking-widest">No sync manifests found</span>
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 border-t border-neutral-800 bg-neutral-950/50">
+              <p className="text-[9px] font-mono text-neutral-600 uppercase text-center leading-relaxed">
+                Select a manifest to roll back the system state. <br/>
+                Warning: This replaces all current local training data.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -188,7 +188,7 @@ const LogAction: React.FC<LogActionProps> = ({
           </div>
           <div>
             <h2 className="text-xl font-bold text-white flex items-center gap-2">
-              {editingEntry ? 'Edit Identity Session' : 'Training Entry'}
+              {editingEntry ? 'Edit Session' : 'Training Entry'}
             </h2>
             <div className="flex items-center gap-2 mt-1">
                <Cpu size={10} className="text-neutral-600" />
@@ -294,7 +294,7 @@ const LogAction: React.FC<LogActionProps> = ({
 
         <section>
           <div className="flex justify-between items-center mb-3">
-            <label className="text-[10px] font-mono text-neutral-500 uppercase tracking-widest">Pre-Training Energy</label>
+            <label className="text-[10px] font-mono text-neutral-500 uppercase tracking-widest">Training Intensity</label>
             <span className="text-lg font-bold text-emerald-500">{energy}/5</span>
           </div>
           <input 
@@ -350,7 +350,7 @@ const LogAction: React.FC<LogActionProps> = ({
           `}
         >
           <Shield size={18} className="group-hover/btn:scale-110 transition-transform" />
-          {editingEntry ? 'Synchronize Updates' : 'Commit to Identity'}
+          {editingEntry ? 'Confirm Updates' : 'Commit'}
         </button>
       </div>
     </div>
