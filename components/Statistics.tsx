@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { WorkoutEntry, WorkoutPlan } from '../types.ts';
 import { format, isAfter } from 'date-fns';
-import { BarChart2, Activity, Zap, Target, Shield, LayoutGrid } from 'lucide-react';
+import { BarChart2, Activity, Zap, Target, Shield, LayoutGrid, Flame, Cpu } from 'lucide-react';
 
 // Fixed local implementations of date-fns utilities
 const startOfDay = (date: Date | number) => {
@@ -109,7 +109,7 @@ const IntensityGraph: React.FC<{ entries: WorkoutEntry[], days: RangeType }> = (
       </svg>
       
       <div className="absolute bottom-3 right-6 flex items-center gap-2">
-        <span className="text-[7px] font-mono text-neutral-600 uppercase tracking-[0.2em]">Trace Active</span>
+        <span className="text-[7px] font-mono text-neutral-600 uppercase tracking-[0.2em]">Intensity Distribution Matrix</span>
         <div className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse" />
       </div>
     </div>
@@ -136,24 +136,73 @@ const Statistics: React.FC<StatisticsProps> = ({ entries, plans }) => {
       ? new Date(Math.min(...entries.map(e => e.timestamp), Date.now()))
       : startOfDay(subDays(now, (typeof range === 'number' ? range : 7) - 1));
     
-    // Use >= comparison to include the first entry when range === 'all'
+    // Filtered entries for range-specific stats
     const filtered = entries.filter(e => e.timestamp >= startDate.getTime());
-    
     const totalLogs = filtered.length;
-    const avgEnergy = totalLogs > 0 
-      ? (filtered.reduce((acc, curr) => acc + curr.energy, 0) / totalLogs).toFixed(1)
+    
+    // avg Intensity based on selected range
+    const avgIntensity = filtered.length > 0 
+      ? (filtered.reduce((acc, curr) => acc + curr.energy, 0) / filtered.length).toFixed(1)
       : '0.0';
     
-    const uniquePlans = new Set(filtered.map(e => e.planId).filter(Boolean)).size;
-    
-    const highIntegrity = filtered.filter(e => e.identity === 0 || e.identity === 1).length;
-    const stabilityScore = totalLogs > 0 ? Math.round((highIntegrity / totalLogs) * 100) : 0;
+    // Top Blueprint based on (training intensity, identity) within range
+    const planScores: Record<string, { count: number, energyTotal: number, identityTotal: number }> = {};
+    filtered.forEach(e => {
+      if (!e.planId) return;
+      if (!planScores[e.planId]) planScores[e.planId] = { count: 0, energyTotal: 0, identityTotal: 0 };
+      planScores[e.planId].count++;
+      planScores[e.planId].energyTotal += e.energy;
+      // Invert identity so Overdrive(0) has more weight (value 4) has more weight (value 4) than Survival(3) (value 1)
+      planScores[e.planId].identityTotal += (4 - e.identity);
+    });
 
-    return { totalLogs, avgEnergy, uniquePlans, stabilityScore };
-  }, [entries, range]);
+    let topPlanName = 'None';
+    let bestScore = -1;
+    Object.entries(planScores).forEach(([pid, data]) => {
+      const avgE = data.energyTotal / data.count;
+      const avgI = data.identityTotal / data.count;
+      // Scoring heuristic favoring frequency and quality
+      const score = (avgE + avgI) * Math.log2(data.count + 1);
+      if (score > bestScore) {
+        bestScore = score;
+        topPlanName = plans.find(p => p.id === pid)?.name || 'Untitled Blueprint';
+      }
+    });
+
+    // longest streak (global)
+    const sortedAll = [...entries].sort((a, b) => a.timestamp - b.timestamp);
+    let maxStreak = 0;
+    let currentStreakCount = 0;
+    if (sortedAll.length > 0) {
+      const datesSet = new Set(sortedAll.map(e => startOfDay(e.timestamp).getTime()));
+      const minTs = Math.min(...Array.from(datesSet));
+      const maxTs = Math.max(...Array.from(datesSet));
+      
+      let cursor = new Date(minTs);
+      const end = new Date(maxTs);
+      while (cursor <= end) {
+        const ts = cursor.getTime();
+        const entry = entries.find(e => startOfDay(e.timestamp).getTime() === ts);
+        if (entry) {
+          if (entry.identity === 3) { // Survival breaks streak
+            currentStreakCount = 0;
+          } else if (entry.identity !== 4) { // OD/Normal/Maintenance increment
+            currentStreakCount++;
+          }
+          // Rest (4) bridges: no increment, but no break
+        } else {
+          currentStreakCount = 0; // Empty day breaks streak
+        }
+        maxStreak = Math.max(maxStreak, currentStreakCount);
+        cursor.setDate(cursor.getDate() + 1);
+      }
+    }
+
+    return { totalLogs, avgIntensity, topPlanName, maxStreak };
+  }, [entries, range, plans]);
 
   return (
-    <div className="space-y-10 pb-16 max-w-6xl mx-auto px-4 sm:px-0">
+    <div className="space-y-10 pb-16 w-full px-4 sm:px-0 lg:max-w-4xl lg:mx-auto">
       {/* Header Section */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 border-b border-neutral-800 pb-6">
         <div className="flex items-center gap-5">
@@ -189,25 +238,49 @@ const Statistics: React.FC<StatisticsProps> = ({ entries, plans }) => {
       <div className="flex flex-col lg:flex-row gap-8 items-start lg:items-stretch">
         {/* Main Visualization Container */}
         <div className="flex-1 w-full min-w-0 flex flex-col gap-6 order-2 lg:order-1">
-          <div className="flex items-center gap-3 px-1">
-            <LayoutGrid size={16} className="text-emerald-500" />
+          <div className="hidden sm:flex items-center gap-3 px-1">
             <h3 className="text-xs font-mono text-neutral-300 font-bold uppercase tracking-widest">Intensity Distribution Matrix</h3>
           </div>
           
           <IntensityGraph entries={entries} days={range} />
         </div>
 
-        {/* Summary Metrics Section - 2x2 Grid, positioned on top for mobile, right for desktop */}
+        {/* Summary Metrics Section - 2x2 Grid */}
         <div className="w-full lg:w-[400px] shrink-0 order-1 lg:order-2 flex flex-col gap-6">
-          <div className="flex items-center gap-3 px-1">
-            <Target size={16} className="text-emerald-500" />
-            <h3 className="text-xs font-mono text-neutral-300 font-bold uppercase tracking-widest">Axiom Performance Telemetry</h3>
+          <div className="hidden sm:flex items-center gap-3 px-1">
+            <h3 className="text-xs font-mono text-neutral-300 font-bold uppercase tracking-widest">Performance Telemetry</h3>
           </div>
           <div className="grid grid-cols-2 lg:grid-rows-2 gap-4 flex-1">
             <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 sm:p-5 shadow-xl flex flex-col justify-between group hover:border-neutral-700 transition-colors relative h-32 lg:h-full">
               <div>
-                <p className="text-[9px] font-mono text-neutral-500 uppercase tracking-widest mb-1">Session Volume</p>
-                <p className="text-2xl sm:text-3xl font-black text-white">{stats.totalLogs}</p>
+                <p className="text-[9px] font-mono text-neutral-500 uppercase tracking-widest mb-1 lg:mb-10">Session Volume</p>
+                <div className="absolute bottom-[11px] left-4">
+                  <p className="text-2xl sm:text-3xl font-black text-white">{stats.totalLogs}</p>
+                </div>
+              </div>
+              <div className="absolute bottom-4 right-4 text-rose-500 opacity-40 group-hover:opacity-100 transition-opacity">
+                <BarChart2 size={20} />
+              </div>
+            </div>
+
+            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 sm:p-5 shadow-xl flex flex-col justify-between group hover:border-neutral-700 transition-colors relative h-32 lg:h-full">
+              <div>
+                <p className="text-[9px] font-mono text-neutral-500 uppercase tracking-widest mb-1 lg:mb-10">Avg Intensity</p>
+                <div className="absolute bottom-1 left-4">
+                  <p className="text-2xl sm:text-3xl font-black text-white">{stats.avgIntensity}<span className="text-[10px] font-mono text-neutral-500 ml-1">/5</span></p>
+                </div>
+              </div>
+              <div className="absolute bottom-4 right-4 text-violet-500 opacity-40 group-hover:opacity-100 transition-opacity">
+                <Zap size={20} />
+              </div>
+            </div>
+
+            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 sm:p-5 shadow-xl flex flex-col justify-between group hover:border-neutral-700 transition-colors relative h-32 lg:h-full overflow-hidden">
+              <div>
+                <p className="text-[9px] font-mono text-neutral-500 uppercase tracking-widest mb-1 lg:mb-10">Top Blueprint</p>
+                <div className="absolute bottom-[11px] left-4">
+                  <p className="text-lg sm:text-xl font-black text-white truncate max-w-full leading-tight pr-2">{stats.topPlanName}</p>
+                </div>
               </div>
               <div className="absolute bottom-4 right-4 text-emerald-500 opacity-40 group-hover:opacity-100 transition-opacity">
                 <Activity size={20} />
@@ -216,31 +289,13 @@ const Statistics: React.FC<StatisticsProps> = ({ entries, plans }) => {
 
             <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 sm:p-5 shadow-xl flex flex-col justify-between group hover:border-neutral-700 transition-colors relative h-32 lg:h-full">
               <div>
-                <p className="text-[9px] font-mono text-neutral-500 uppercase tracking-widest mb-1">Mean Intensity</p>
-                <p className="text-2xl sm:text-3xl font-black text-white">{stats.avgEnergy}<span className="text-[10px] font-mono text-neutral-500 ml-1">/5</span></p>
+                <p className="text-[9px] font-mono text-neutral-500 uppercase tracking-widest mb-1 lg:mb-10">Longest Streak</p>
+                <div className="absolute bottom-1 left-4">
+                  <p className="text-2xl sm:text-3xl font-black text-white">{stats.maxStreak}<span className="text-[10px] font-mono text-neutral-500 ml-1">DYS</span></p>
+                </div>
               </div>
-              <div className="absolute bottom-4 right-4 text-violet-500 opacity-40 group-hover:opacity-100 transition-opacity">
-                <Zap size={20} />
-              </div>
-            </div>
-
-            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 sm:p-5 shadow-xl flex flex-col justify-between group hover:border-neutral-700 transition-colors relative h-32 lg:h-full">
-              <div>
-                <p className="text-[9px] font-mono text-neutral-500 uppercase tracking-widest mb-1">Blueprint Parity</p>
-                <p className="text-2xl sm:text-3xl font-black text-white">{stats.uniquePlans}</p>
-              </div>
-              <div className="absolute bottom-4 right-4 text-amber-500 opacity-40 group-hover:opacity-100 transition-opacity">
-                <Target size={20} />
-              </div>
-            </div>
-
-            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 sm:p-5 shadow-xl flex flex-col justify-between group hover:border-neutral-700 transition-colors relative h-32 lg:h-full">
-              <div>
-                <p className="text-[9px] font-mono text-neutral-500 uppercase tracking-widest mb-1">Stability Index</p>
-                <p className="text-2xl sm:text-3xl font-black text-white">{stats.stabilityScore}<span className="text-[10px] font-mono text-neutral-500 ml-1">%</span></p>
-              </div>
-              <div className="absolute bottom-4 right-4 text-emerald-400 opacity-40 group-hover:opacity-100 transition-opacity">
-                <Shield size={20} />
+              <div className="absolute bottom-4 right-4 text-amber-400 opacity-40 group-hover:opacity-100 transition-opacity">
+                <Flame size={20} />
               </div>
             </div>
           </div>

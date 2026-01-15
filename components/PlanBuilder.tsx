@@ -307,6 +307,9 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
   // Intermediate input state to handle typing decimals naturally
   const [inputStates, setInputStates] = useState<Record<string, string>>({});
 
+  // Sync reorder index via touch for mobile
+  const touchDragIdx = useRef<number | null>(null);
+
   // Synchronize internal state with external navigation state for back-gesture support
   useEffect(() => {
     if (externalIsEditing !== undefined) {
@@ -380,7 +383,6 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
   }, [reorderStopTrigger]);
 
   // Derive local dirty state for UI feedback (Save vs Saved)
-  // useMemo prevents expensive stringify on every render when cycling fast
   const isDirty = useMemo(() => {
     return (isCreating || editingPlanId !== null) && 
            initialPlanRef.current !== null && 
@@ -453,8 +455,14 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
     }
   };
 
-  // Drag and Drop Logic
+  // Drag and Drop Logic (Desktop)
   const onDragStart = (e: React.DragEvent, index: number) => {
+    // Restrict drag start to the handle on desktop
+    const target = e.target as HTMLElement;
+    if (!target.closest('[data-drag-handle]')) {
+      e.preventDefault();
+      return;
+    }
     e.dataTransfer.setData('index', index.toString());
     e.dataTransfer.effectAllowed = 'move';
   };
@@ -488,6 +496,54 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
     const [moved] = newEx.splice(fromIndex, 1);
     newEx.splice(targetIndex, 0, moved);
     setTempPlan(prev => ({ ...prev, exercises: newEx }));
+  };
+
+  // Touch Drag Logic (Mobile)
+  const handleTouchStartReorder = (e: React.TouchEvent, index: number) => {
+    // Only handle touch if reordering is active
+    if (!isReordering && !isReorderingList) return;
+    touchDragIdx.current = index;
+    // Prevent default to avoid scroll while starting drag from handle
+  };
+
+  const handleTouchMoveReorder = (e: React.TouchEvent, type: 'plan' | 'exercise') => {
+    if (touchDragIdx.current === null) return;
+    
+    const touch = e.touches[0];
+    const scrollThreshold = 100;
+    const scrollSpeed = 15;
+
+    // Auto-scrolling logic
+    if (touch.clientY < scrollThreshold) {
+      window.scrollBy(0, -scrollSpeed);
+    } else if (touch.clientY > window.innerHeight - scrollThreshold) {
+      window.scrollBy(0, scrollSpeed);
+    }
+
+    const targetElement = document.elementFromPoint(touch.clientX, touch.clientY);
+    const itemContainer = targetElement?.closest('[data-index]');
+    if (!itemContainer) return;
+
+    const targetIndex = parseInt(itemContainer.getAttribute('data-index') || '-1');
+    if (targetIndex === -1 || targetIndex === touchDragIdx.current) return;
+
+    if (type === 'plan') {
+      const newPlans = [...plans];
+      const [moved] = newPlans.splice(touchDragIdx.current, 1);
+      newPlans.splice(targetIndex, 0, moved);
+      onUpdatePlans(newPlans);
+    } else {
+      if (!tempPlan.exercises) return;
+      const newEx = [...tempPlan.exercises];
+      const [moved] = newEx.splice(touchDragIdx.current, 1);
+      newEx.splice(targetIndex, 0, moved);
+      setTempPlan(prev => ({ ...prev, exercises: newEx }));
+    }
+    touchDragIdx.current = targetIndex;
+  };
+
+  const handleTouchEndReorder = () => {
+    touchDragIdx.current = null;
   };
 
   const addExercise = () => {
@@ -538,13 +594,9 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
       if (index === -1) return prev;
 
       const currentMain = exercises[index];
-      
-      // Limit to 10 alternatives
       if ((currentMain.alternatives?.length || 0) >= 10) return prev;
 
       const altNumber = (currentMain.alternatives?.length || 0) + 1;
-      
-      // Flatten current to prevent nested alternatives crash
       const flattenedAlts = (currentMain.alternatives || []).map(a => ({ ...a, alternatives: undefined }));
       const flattenedMain = { ...currentMain, alternatives: undefined };
 
@@ -559,7 +611,6 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
         supersetId: currentMain.supersetId
       };
 
-      // To keep it "saved as chosen", make the new one primary immediately
       const updatedMain = {
         ...newAlt,
         alternatives: [...flattenedAlts, flattenedMain]
@@ -606,11 +657,8 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
       const alts = currentMain.alternatives || [];
       if (alts.length === 0) return prev;
 
-      // Ensure all items are flat before rotation to prevent recursive state crash
       const all = [currentMain, ...alts].map(ex => ({ ...ex, alternatives: undefined }));
       const total = all.length;
-      
-      // Rotate primary slot to next/previous alternative and save as chosen
       const shift = (delta + total) % total;
       const rotated = [...all.slice(shift), ...all.slice(0, shift)];
       
@@ -657,9 +705,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
           } : ex
         );
 
-        const members = updatedExercises.filter(ex => {
-           return ex.supersetId === sid;
-        });
+        const members = updatedExercises.filter(ex => ex.supersetId === sid);
         if (members.length === 2) {
           const idx1 = updatedExercises.findIndex(ex => ex.id === members[0].id);
           const idx2 = updatedExercises.findIndex(ex => ex.id === members[1].id);
@@ -711,13 +757,10 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
   const removeExercise = (exerciseId: string) => {
     setTempPlan(prev => {
       const currentExercises = prev.exercises || [];
-      
-      // We look for the exercise "slot" where this exercise is currently displayed (primary)
       const primaryIndex = currentExercises.findIndex(ex => ex.id === exerciseId);
       
       if (primaryIndex !== -1) {
         const targetSlot = currentExercises[primaryIndex];
-        // If the slot has alternatives, promote the first one to primary instead of removing the whole slot
         if (targetSlot.alternatives && targetSlot.alternatives.length > 0) {
           const nextAlts = [...targetSlot.alternatives];
           const promoted = nextAlts.shift()!;
@@ -725,11 +768,9 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
           newExercises[primaryIndex] = { ...promoted, alternatives: nextAlts };
           return { ...prev, exercises: newExercises };
         }
-        // If it has no alternatives, remove the entire slot from the blueprint
         return { ...prev, exercises: currentExercises.filter(ex => ex.id !== exerciseId) };
       }
 
-      // Safeguard: Check if it's a nested alternative and remove it from there
       const updatedExercises = currentExercises.map(ex => {
         if (ex.alternatives && ex.alternatives.some(alt => alt.id === exerciseId)) {
           return {
@@ -794,7 +835,6 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
     if (!file) return;
 
     if (!accessToken) {
-      // Offline fallback: use local base64 but warning that it won't be in Drive
       const reader = new FileReader();
       reader.onloadend = () => {
         updateExercise(exerciseId, { image: reader.result as string });
@@ -869,14 +909,12 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
       const modulesId = await findOrCreateFolder('modules', axiomId);
       const uploadsId = await findOrCreateFolder('uploads', modulesId);
 
-      // Fetch user's personal uploads from the modules/uploads folder
       const qPrivate = encodeURIComponent(`'${uploadsId}' in parents and mimeType contains 'image/' and trashed = false`);
       const responsePrivate = await fetch(`https://www.googleapis.com/drive/v3/files?q=${qPrivate}&fields=files(id,name,thumbnailLink)&pageSize=50`, {
         headers: { Authorization: `Bearer ${accessToken}` }
       });
       const dataPrivate = await responsePrivate.json();
 
-      // Fetch shared folder content
       const qShared = encodeURIComponent(`'${sharedFolderId}' in parents and mimeType contains 'image/' and trashed = false`);
       const responseShared = await fetch(`https://www.googleapis.com/drive/v3/files?q=${qShared}&fields=files(id,name,thumbnailLink)&pageSize=100&supportsAllDrives=true&includeItemsFromAllDrives=true`, {
         headers: { Authorization: `Bearer ${accessToken}` }
@@ -889,7 +927,6 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
         ...(dataShared.files || [])
       ];
 
-      // Remove duplicates by ID
       const uniqueFiles = combinedFiles.filter((file, index, self) =>
         index === self.findIndex((f) => f.id === file.id)
       );
@@ -1012,6 +1049,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
             return (
               <div 
                 key={ex.id} 
+                data-index={index}
                 draggable={isReordering}
                 onDragStart={(e) => onDragStart(e, index)}
                 onDragOver={onDragOver}
@@ -1101,8 +1139,14 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                         disabled={isReordering}
                       />
                       {isReordering && (
-                        <div className="text-neutral-500 cursor-grab active:cursor-grabbing p-1">
-                          <GripVertical size={18} />
+                        <div 
+                          data-drag-handle 
+                          className="text-neutral-500 cursor-grab active:cursor-grabbing p-2 sm:p-1 touch-none"
+                          onTouchStart={(e) => handleTouchStartReorder(e, index)}
+                          onTouchMove={(e) => handleTouchMoveReorder(e, 'exercise')}
+                          onTouchEnd={handleTouchEndReorder}
+                        >
+                          <GripVertical size={20} />
                         </div>
                       )}
                     </div>
@@ -1413,7 +1457,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
         <div className="flex gap-2 w-full sm:w-auto">
           <button 
             onClick={() => setIsReorderingList(!isReorderingList)}
-            className={`px-2 sm:px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-all flex-1 sm:flex-none justify-center ${isReorderingList ? 'bg-violet-600 text-white' : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700 hover:text-white'}`}
+            className={`px-2 sm:px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-all flex-1 sm:flex-none justify-center ${isReorderingList ? 'bg-violet-600 text-white shadow-lg' : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700 hover:text-white'}`}
             title="Toggle List Reorder"
           >
             <ArrowUpDown size={18} />
@@ -1451,6 +1495,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
           {plans.map((plan: WorkoutPlan, planIndex: number) => (
             <div 
               key={plan.id} 
+              data-index={planIndex}
               draggable={isReorderingList}
               onDragStart={(e) => onDragStart(e, planIndex)}
               onDragOver={onDragOver}
@@ -1466,8 +1511,14 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                 <div className="flex justify-between items-start mb-4">
                   <div className="flex items-start gap-3">
                     {isReorderingList && (
-                      <div className="p-1 cursor-grab active:cursor-grabbing text-neutral-600 border-r border-neutral-800 pr-2">
-                        <GripVertical size={20} />
+                      <div 
+                        data-drag-handle
+                        className="p-2 -ml-2 cursor-grab active:cursor-grabbing text-neutral-600 border-r border-neutral-800 pr-2 touch-none"
+                        onTouchStart={(e) => handleTouchStartReorder(e, planIndex)}
+                        onTouchMove={(e) => handleTouchMoveReorder(e, 'plan')}
+                        onTouchEnd={handleTouchEndReorder}
+                      >
+                        <GripVertical size={24} />
                       </div>
                     )}
                     <div>
