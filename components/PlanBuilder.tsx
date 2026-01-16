@@ -296,6 +296,9 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
   const [isSavedMenuOpen, setIsSavedMenuOpen] = useState(false);
   const savedMenuContainerRef = useRef<HTMLDivElement>(null);
 
+  const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
+  const [draggedType, setDraggedType] = useState<'plan' | 'exercise' | null>(null);
+
   const [tempPlan, setTempPlan] = useState<Partial<WorkoutPlan>>({
     name: '',
     description: '',
@@ -456,15 +459,22 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
   };
 
   // Drag and Drop Logic (Desktop)
-  const onDragStart = (e: React.DragEvent, index: number) => {
+  const onDragStart = (e: React.DragEvent, index: number, type: 'plan' | 'exercise') => {
     // Restrict drag start to the handle on desktop
     const target = e.target as HTMLElement;
     if (!target.closest('[data-drag-handle]')) {
       e.preventDefault();
       return;
     }
+    setDraggedIdx(index);
+    setDraggedType(type);
     e.dataTransfer.setData('index', index.toString());
     e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const onDragEnd = () => {
+    setDraggedIdx(null);
+    setDraggedType(null);
   };
 
   const onDragOver = (e: React.DragEvent) => {
@@ -499,10 +509,12 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
   };
 
   // Touch Drag Logic (Mobile)
-  const handleTouchStartReorder = (e: React.TouchEvent, index: number) => {
+  const handleTouchStartReorder = (e: React.TouchEvent, index: number, type: 'plan' | 'exercise') => {
     // Only handle touch if reordering is active
     if (!isReordering && !isReorderingList) return;
     touchDragIdx.current = index;
+    setDraggedIdx(index);
+    setDraggedType(type);
     // Prevent default to avoid scroll while starting drag from handle
   };
 
@@ -540,10 +552,13 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
       setTempPlan(prev => ({ ...prev, exercises: newEx }));
     }
     touchDragIdx.current = targetIndex;
+    setDraggedIdx(targetIndex);
   };
 
   const handleTouchEndReorder = () => {
     touchDragIdx.current = null;
+    setDraggedIdx(null);
+    setDraggedType(null);
   };
 
   const addExercise = () => {
@@ -947,6 +962,17 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
   if (isCreating || editingPlanId) {
     return (
       <div className="space-y-6 animate-in fade-in duration-300">
+        <style>{`
+          .reorder-item {
+            transition: transform 0.2s cubic-bezier(0.2, 0, 0.2, 1), opacity 0.2s ease, box-shadow 0.2s ease;
+          }
+          .is-dragging {
+            opacity: 0.4 !important;
+            transform: scale(0.98) rotate(1deg) !important;
+            box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.3), 0 8px 10px -6px rgb(0 0 0 / 0.3) !important;
+            z-index: 50 !important;
+          }
+        `}</style>
         <div className="flex justify-between items-center border-b border-neutral-800 pb-4">
           <div className="flex-1 max-w-xl flex items-center gap-2">
             <button 
@@ -1045,13 +1071,15 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
           {tempPlan.exercises?.map((ex, index) => {
             const totalAlts = 1 + (ex.alternatives?.length || 0);
             const hasAlternatives = ex.alternatives && ex.alternatives.length > 0;
+            const isBeingDragged = draggedType === 'exercise' && draggedIdx === index;
 
             return (
               <div 
                 key={ex.id} 
                 data-index={index}
                 draggable={isReordering}
-                onDragStart={(e) => onDragStart(e, index)}
+                onDragStart={(e) => onDragStart(e, index, 'exercise')}
+                onDragEnd={onDragEnd}
                 onDragOver={onDragOver}
                 onDrop={(e) => onDropExercise(e, index)}
                 onTouchStart={e => {
@@ -1065,7 +1093,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                   if (touchStart - touchEnd < -50) switchAlternative(ex.id, -1);
                   setTouchStart(null);
                 }}
-                className={`bg-neutral-900 border border-neutral-800 rounded-xl flex flex-col group relative transition-all ${isReordering ? 'cursor-default' : ''}`}
+                className={`bg-neutral-900 border border-neutral-800 rounded-xl flex flex-col group relative reorder-item ${isReordering ? 'cursor-default' : ''} ${isBeingDragged ? 'is-dragging' : ''}`}
               >
                 {/* Visual Stack Layers */}
                 {totalAlts >= 2 && (
@@ -1142,7 +1170,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                         <div 
                           data-drag-handle 
                           className="text-neutral-500 cursor-grab active:cursor-grabbing p-2 sm:p-1 touch-none"
-                          onTouchStart={(e) => handleTouchStartReorder(e, index)}
+                          onTouchStart={(e) => handleTouchStartReorder(e, index, 'exercise')}
                           onTouchMove={(e) => handleTouchMoveReorder(e, 'exercise')}
                           onTouchEnd={handleTouchEndReorder}
                         >
@@ -1241,6 +1269,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                     </button>
                   </div>
 
+                  {/* Fix: Changed exerciseId to ex.id to resolve reference error */}
                   <button 
                     onClick={() => toggleSuperset(ex.id)} 
                     className={`p-1 h-6 rounded-md border flex items-center gap-1 transition-all ${ex.supersetId ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500' : 'bg-neutral-800 border-neutral-700 text-neutral-500'}`}
@@ -1441,6 +1470,17 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
 
   return (
     <div className="space-y-8">
+      <style>{`
+        .reorder-item {
+          transition: transform 0.2s cubic-bezier(0.2, 0, 0.2, 1), opacity 0.2s ease, box-shadow 0.2s ease;
+        }
+        .is-dragging {
+          opacity: 0.4 !important;
+          transform: scale(0.98) rotate(1deg) !important;
+          box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.3), 0 8px 10px -6px rgb(0 0 0 / 0.3) !important;
+          z-index: 50 !important;
+        }
+      `}</style>
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 border-b border-neutral-800 pb-6">
         <div className="flex items-center gap-5">
           <div className="p-3 bg-neutral-900 border border-neutral-800 rounded-2xl shadow-lg">
@@ -1492,107 +1532,112 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {plans.map((plan: WorkoutPlan, planIndex: number) => (
-            <div 
-              key={plan.id} 
-              data-index={planIndex}
-              draggable={isReorderingList}
-              onDragStart={(e) => onDragStart(e, planIndex)}
-              onDragOver={onDragOver}
-              onDrop={(e) => onDropPlan(e, planIndex)}
-              onClick={() => { 
-                if (isReorderingList) return;
-                if (onOpenEditor) onOpenEditor(plan.id); 
-                else { setEditingPlanId(plan.id); setTempPlan(plan); } 
-              }}
-              className={`bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden group hover:border-neutral-700 transition-all shadow-xl ${isReorderingList ? 'cursor-default' : 'cursor-pointer'}`}
-            >
-              <div className="p-6">
-                <div className="flex justify-between items-start mb-4">
-                  <div className="flex items-start gap-3">
-                    {isReorderingList && (
-                      <div 
-                        data-drag-handle
-                        className="p-2 -ml-2 cursor-grab active:cursor-grabbing text-neutral-600 border-r border-neutral-800 pr-2 touch-none"
-                        onTouchStart={(e) => handleTouchStartReorder(e, planIndex)}
-                        onTouchMove={(e) => handleTouchMoveReorder(e, 'plan')}
-                        onTouchEnd={handleTouchEndReorder}
-                      >
-                        <GripVertical size={24} />
+          {plans.map((plan: WorkoutPlan, planIndex: number) => {
+            const isBeingDragged = draggedType === 'plan' && draggedIdx === planIndex;
+
+            return (
+              <div 
+                key={plan.id} 
+                data-index={planIndex}
+                draggable={isReorderingList}
+                onDragStart={(e) => onDragStart(e, planIndex, 'plan')}
+                onDragEnd={onDragEnd}
+                onDragOver={onDragOver}
+                onDrop={(e) => onDropPlan(e, planIndex)}
+                onClick={() => { 
+                  if (isReorderingList) return;
+                  if (onOpenEditor) onOpenEditor(plan.id); 
+                  else { setEditingPlanId(plan.id); setTempPlan(plan); } 
+                }}
+                className={`bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden group hover:border-neutral-700 transition-all shadow-xl reorder-item ${isReorderingList ? 'cursor-default' : 'cursor-pointer'} ${isBeingDragged ? 'is-dragging' : ''}`}
+              >
+                <div className="p-6">
+                  <div className="flex justify-between items-start mb-4">
+                    <div className="flex items-start gap-3">
+                      {isReorderingList && (
+                        <div 
+                          data-drag-handle
+                          className="p-2 -ml-2 cursor-grab active:cursor-grabbing text-neutral-600 border-r border-neutral-800 pr-2 touch-none"
+                          onTouchStart={(e) => handleTouchStartReorder(e, planIndex, 'plan')}
+                          onTouchMove={(e) => handleTouchMoveReorder(e, 'plan')}
+                          onTouchEnd={handleTouchEndReorder}
+                        >
+                          <GripVertical size={24} />
+                        </div>
+                      )}
+                      <div>
+                        <h3 className="text-lg font-bold text-white group-hover:text-emerald-400 transition-colors">{plan.name}</h3>
+                        <p className="text-xs text-neutral-500 font-mono mt-1">{plan.exercises.length} Active Modules</p>
                       </div>
-                    )}
-                    <div>
-                      <h3 className="text-lg font-bold text-white group-hover:text-emerald-400 transition-colors">{plan.name}</h3>
-                      <p className="text-xs text-neutral-500 font-mono mt-1">{plan.exercises.length} Active Modules</p>
+                    </div>
+                    <div className="flex gap-2">
+                      {!isReorderingList && (
+                        <>
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); onLogPlan?.(plan.id); }}
+                            title="Log this blueprint today"
+                            className="p-2 bg-emerald-950/40 hover:bg-emerald-900/60 rounded-lg text-emerald-400 hover:text-emerald-300 border border-emerald-500/20 transition-all"
+                          >
+                            <Activity size={16} />
+                          </button>
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); copyPlan(e, plan); }}
+                            title="Copy this blueprint"
+                            className="p-2 bg-neutral-800 hover:bg-neutral-700 rounded-lg text-neutral-400 hover:text-white border border-neutral-700/50 transition-all"
+                          >
+                            <Copy size={16} />
+                          </button>
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); deletePlan(plan.id); }}
+                            title="Delete blueprint"
+                            className="p-2 bg-neutral-800 hover:bg-rose-900/30 rounded-lg text-neutral-400 hover:text-rose-500 transition-all"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
-                  <div className="flex gap-2">
-                    {!isReorderingList && (
-                      <>
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); onLogPlan?.(plan.id); }}
-                          title="Log this blueprint today"
-                          className="p-2 bg-emerald-950/40 hover:bg-emerald-900/60 rounded-lg text-emerald-400 hover:text-emerald-300 border border-emerald-500/20 transition-all"
-                        >
-                          <Activity size={16} />
-                        </button>
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); copyPlan(e, plan); }}
-                          title="Copy this blueprint"
-                          className="p-2 bg-neutral-800 hover:bg-neutral-700 rounded-lg text-neutral-400 hover:text-white border border-neutral-700/50 transition-all"
-                        >
-                          <Copy size={16} />
-                        </button>
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); deletePlan(plan.id); }}
-                          title="Delete blueprint"
-                          className="p-2 bg-neutral-800 hover:bg-rose-900/30 rounded-lg text-neutral-400 hover:text-rose-500 transition-all"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </>
+
+                  <div className="space-y-4">
+                    {plan.description && (
+                      <div className="flex gap-2 items-start opacity-70">
+                        <FileText size={14} className="text-neutral-500 shrink-0 mt-0.5" />
+                        <p className="text-xs text-neutral-400 line-clamp-2">{plan.description}</p>
+                      </div>
                     )}
+
+                    <div className="flex flex-wrap gap-2">
+                      {Array.from(new Set(plan.exercises.map(ex => ex.muscleType))).map((muscle: string) => (
+                        <span key={muscle} className="px-2 py-1 rounded bg-black/40 border border-neutral-800 text-[10px] font-mono text-neutral-400 uppercase flex items-center gap-2">
+                          <MuscleIcon type={muscle} className="w-3.5 h-3.5" />
+                          {muscle}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 </div>
-
-                <div className="space-y-4">
-                   {plan.description && (
-                     <div className="flex gap-2 items-start opacity-70">
-                       <FileText size={14} className="text-neutral-500 shrink-0 mt-0.5" />
-                       <p className="text-xs text-neutral-400 line-clamp-2">{plan.description}</p>
-                     </div>
-                   )}
-
-                   <div className="flex flex-wrap gap-2">
-                     {Array.from(new Set(plan.exercises.map(ex => ex.muscleType))).map((muscle: string) => (
-                       <span key={muscle} className="px-2 py-1 rounded bg-black/40 border border-neutral-800 text-[10px] font-mono text-neutral-400 uppercase flex items-center gap-2">
-                         <MuscleIcon type={muscle} className="w-3.5 h-3.5" />
-                         {muscle}
-                       </span>
-                     ))}
-                   </div>
+                
+                <div className="px-6 py-4 bg-black/20 border-t border-neutral-800 flex justify-between items-center">
+                  <div className="flex -space-x-2">
+                      {plan.exercises.slice(0, 4).map((ex, i) => (
+                        <div key={ex.id} className="w-9 h-9 rounded-full bg-neutral-800 border-2 border-neutral-900 flex items-center justify-center text-neutral-300" title={ex.name}>
+                          <MuscleIcon type={ex.muscleType} className="w-5 h-5" />
+                        </div>
+                      ))}
+                      {plan.exercises.length > 4 && (
+                        <div className="w-9 h-9 rounded-full bg-neutral-900 border-2 border-neutral-900 flex items-center justify-center text-[10px] font-bold text-neutral-500">
+                          +{plan.exercises.length - 4}
+                        </div>
+                      )}
+                  </div>
+                  <div className="text-[10px] font-mono text-emerald-500 hover:text-emerald-400 font-bold uppercase tracking-wider">
+                    {isReorderingList ? 'Locked' : 'Expand Blueprint →'}
+                  </div>
                 </div>
               </div>
-              
-              <div className="px-6 py-4 bg-black/20 border-t border-neutral-800 flex justify-between items-center">
-                 <div className="flex -space-x-2">
-                    {plan.exercises.slice(0, 4).map((ex, i) => (
-                      <div key={ex.id} className="w-9 h-9 rounded-full bg-neutral-800 border-2 border-neutral-900 flex items-center justify-center text-neutral-300" title={ex.name}>
-                        <MuscleIcon type={ex.muscleType} className="w-5 h-5" />
-                      </div>
-                    ))}
-                    {plan.exercises.length > 4 && (
-                      <div className="w-9 h-9 rounded-full bg-neutral-900 border-2 border-neutral-900 flex items-center justify-center text-[10px] font-bold text-neutral-500">
-                        +{plan.exercises.length - 4}
-                      </div>
-                    )}
-                 </div>
-                 <div className="text-[10px] font-mono text-emerald-500 hover:text-emerald-400 font-bold uppercase tracking-wider">
-                   {isReorderingList ? 'Locked' : 'Expand Blueprint →'}
-                 </div>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

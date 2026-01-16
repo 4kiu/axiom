@@ -53,30 +53,11 @@ const LAST_ACTIVE_TS_KEY = 'axiom_last_active_ts';
 const VIEW_ORDER: ViewType[] = ['current', 'plans', 'history', 'discovery'];
 
 const AxiomLogo = ({ className = "w-8 h-8" }: { className?: string }) => (
-  <svg 
-    viewBox="0 0 100 100" 
-    fill="none" 
-    xmlns="http://www.w3.org/2000/svg" 
+  <img 
+    src="https://res.cloudinary.com/dziwxssi4/image/upload/v1768522395/Axiom_SVG_uei7cz.svg" 
+    alt="Axiom Logo" 
     className={className}
-  >
-    <path 
-      d="M50 15L85 80H15L50 15Z" 
-      stroke="white" 
-      strokeWidth="8" 
-      strokeLinejoin="round" 
-    />
-    <path 
-      d="M35 55H65" 
-      stroke="white" 
-      strokeWidth="8" 
-      strokeLinecap="round" 
-    />
-    <path 
-      d="M50 15L50 40" 
-      stroke="white" 
-      strokeLinecap="round" 
-    />
-  </svg>
+  />
 );
 
 const startOfWeek = (date: Date | number, options?: { weekStartsOn?: number }) => {
@@ -696,9 +677,9 @@ const App: React.FC = () => {
         <div className="max-w-7xl mx-auto flex flex-row justify-between items-center">
           <div className="flex items-center gap-3">
             <AxiomLogo className="w-8 h-8" />
-            <div className="flex flex-col">
-              <h1 className="text-lg font-mono font-bold tracking-tight uppercase leading-none text-white">Axiom v2.6</h1>
-              <span className="text-[9px] text-neutral-500 font-mono uppercase tracking-tighter">Personal Intelligence OS</span>
+            <div className="flex items-baseline gap-1">
+              <h1 className="text-lg font-Mono font-bold tracking-tight uppercase leading-none text-neutral-700">Axiom</h1>
+              <span className="text-[9px] text-neutral-500 font-mono uppercase tracking-tighter">v2.6</span>
             </div>
           </div>
           <nav className="hidden sm:flex items-center gap-2 bg-neutral-900/50 p-1.5 rounded-xl border border-neutral-800"><NavItems /></nav>
