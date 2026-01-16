@@ -704,7 +704,7 @@ const App: React.FC = () => {
       <main className="flex-1 max-w-7xl mx-auto w-full p-4 md:p-6 space-y-8 bg-[#121212] page-transition-wrapper">
         <div key={view} className={swipeDirection === 'right' ? 'page-enter-right' : 'page-enter-left'}>
           {view === 'current' && (
-            <div className="space-y-6 px-4 sm:px-0 lg:max-w-4xl lg:mx-auto">
+            <div className="space-y-6">
               <div 
                 className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-stretch"
               >

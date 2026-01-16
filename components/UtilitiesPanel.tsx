@@ -418,7 +418,7 @@ const UtilitiesPanel: React.FC<UtilitiesPanelProps> = ({
 
             <div className="flex items-center gap-2 z-10">
               <div className="flex flex-col items-center">
-                <div className={`text-5xl font-mono font-black tracking-tighter transition-all duration-300 ${stopwatch.active ? 'text-violet-400 drop-shadow-[0_0_8px_rgba(167,139,250,0.5)]' : 'text-neutral-400'}`}>
+                <div className={`text-[2.75rem] leading-none font-mono font-black tracking-tighter transition-all duration-300 ${stopwatch.active ? 'text-violet-400 drop-shadow-[0_0_8px_rgba(167,139,250,0.5)]' : 'text-neutral-400'}`}>
                   {timeObj.h}
                 </div>
                 <div className="text-[8px] font-mono text-neutral-600 uppercase tracking-widest font-bold mt-1">HRS</div>
@@ -427,7 +427,7 @@ const UtilitiesPanel: React.FC<UtilitiesPanelProps> = ({
               <div className={`text-4xl font-mono font-bold transition-opacity duration-500 ${stopwatch.active ? 'opacity-100 text-violet-500 animate-pulse' : 'opacity-30 text-neutral-600'}`}>:</div>
               
               <div className="flex flex-col items-center">
-                <div className={`text-5xl font-mono font-black tracking-tighter transition-all duration-300 ${stopwatch.active ? 'text-violet-400 drop-shadow-[0_0_8px_rgba(167,139,250,0.5)]' : 'text-neutral-400'}`}>
+                <div className={`text-[2.75rem] leading-none font-mono font-black tracking-tighter transition-all duration-300 ${stopwatch.active ? 'text-violet-400 drop-shadow-[0_0_8px_rgba(167,139,250,0.5)]' : 'text-neutral-400'}`}>
                   {timeObj.m}
                 </div>
                 <div className="text-[8px] font-mono text-neutral-600 uppercase tracking-widest font-bold mt-1">MIN</div>
@@ -436,7 +436,7 @@ const UtilitiesPanel: React.FC<UtilitiesPanelProps> = ({
               <div className={`text-4xl font-mono font-bold transition-opacity duration-500 ${stopwatch.active ? 'opacity-100 text-violet-500 animate-pulse' : 'opacity-30 text-neutral-600'}`}>:</div>
               
               <div className="flex flex-col items-center">
-                <div className={`text-5xl font-mono font-black tracking-tighter transition-all duration-300 ${stopwatch.active ? 'text-violet-400 drop-shadow-[0_0_8px_rgba(167,139,250,0.5)]' : 'text-neutral-400'}`}>
+                <div className={`text-[2.75rem] leading-none font-mono font-black tracking-tighter transition-all duration-300 ${stopwatch.active ? 'text-violet-400 drop-shadow-[0_0_8px_rgba(167,139,250,0.5)]' : 'text-neutral-400'}`}>
                   {timeObj.s}
                 </div>
                 <div className="text-[8px] font-mono text-neutral-600 uppercase tracking-widest font-bold mt-1">SEC</div>

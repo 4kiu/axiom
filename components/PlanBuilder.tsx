@@ -336,7 +336,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
            // External says creating
            const newPlan = {
              id: crypto.randomUUID(),
-             name: 'Blueprint', //New Blueprint
+             name: 'New Blueprint',
              description: '',
              exercises: [],
              createdAt: Date.now()
@@ -403,7 +403,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
     } else {
       const newPlan = {
         id: crypto.randomUUID(),
-        name: 'Blueprint', //New Blueprint
+        name: 'New Blueprint',
         description: '',
         exercises: [],
         createdAt: Date.now()
@@ -983,7 +983,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                 onFocus={(e) => e.target.select()}
                 onChange={(e) => setTempPlan({ ...tempPlan, name: e.target.value })}
                 className="bg-transparent border-none text-2xl font-bold text-white focus:ring-0 w-full placeholder-neutral-700 p-0 leading-tight"
-                placeholder="Blueprint"
+                placeholder="Blueprint Name..."
                 disabled={isReordering}
               />
               <input 
