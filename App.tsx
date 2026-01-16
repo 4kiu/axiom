@@ -678,7 +678,7 @@ const App: React.FC = () => {
           <div className="flex items-center gap-3">
             <AxiomLogo className="w-8 h-8" />
             <div className="flex items-baseline gap-1">
-              <h1 className="text-lg font-Mono font-bold tracking-tight uppercase leading-none text-neutral-700">Axiom</h1>
+              <h1 className="text-lg font-mono font-bold tracking-tight uppercase leading-none text-neutral-700">Axiom</h1>
               <span className="text-[9px] text-neutral-500 font-mono uppercase tracking-tighter">v2.6</span>
             </div>
           </div>
@@ -704,7 +704,7 @@ const App: React.FC = () => {
       <main className="flex-1 max-w-7xl mx-auto w-full p-4 md:p-6 space-y-8 bg-[#121212] page-transition-wrapper">
         <div key={view} className={swipeDirection === 'right' ? 'page-enter-right' : 'page-enter-left'}>
           {view === 'current' && (
-            <div className="space-y-6">
+            <div className="space-y-6 px-4 sm:px-0 lg:max-w-4xl lg:mx-auto">
               <div 
                 className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-stretch"
               >

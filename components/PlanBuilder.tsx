@@ -336,7 +336,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
            // External says creating
            const newPlan = {
              id: crypto.randomUUID(),
-             name: 'New Blueprint',
+             name: 'Blueprint', //New Blueprint
              description: '',
              exercises: [],
              createdAt: Date.now()
@@ -403,7 +403,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
     } else {
       const newPlan = {
         id: crypto.randomUUID(),
-        name: 'New Blueprint',
+        name: 'Blueprint', //New Blueprint
         description: '',
         exercises: [],
         createdAt: Date.now()
@@ -961,18 +961,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
 
   if (isCreating || editingPlanId) {
     return (
-      <div className="space-y-6 animate-in fade-in duration-300">
-        <style>{`
-          .reorder-item {
-            transition: transform 0.2s cubic-bezier(0.2, 0, 0.2, 1), opacity 0.2s ease, box-shadow 0.2s ease;
-          }
-          .is-dragging {
-            opacity: 0.4 !important;
-            transform: scale(0.98) rotate(1deg) !important;
-            box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.3), 0 8px 10px -6px rgb(0 0 0 / 0.3) !important;
-            z-index: 50 !important;
-          }
-        `}</style>
+      <div className="space-y-6 animate-in fade-in duration-300 px-4 sm:px-0 mx-auto">
         <div className="flex justify-between items-center border-b border-neutral-800 pb-4">
           <div className="flex-1 max-w-xl flex items-center gap-2">
             <button 
@@ -994,7 +983,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
                 onFocus={(e) => e.target.select()}
                 onChange={(e) => setTempPlan({ ...tempPlan, name: e.target.value })}
                 className="bg-transparent border-none text-2xl font-bold text-white focus:ring-0 w-full placeholder-neutral-700 p-0 leading-tight"
-                placeholder="Blueprint Name..."
+                placeholder="Blueprint"
                 disabled={isReordering}
               />
               <input 
@@ -1464,23 +1453,23 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
           }}
           onCancel={() => setExerciseToDeleteId(null)}
         />
+        <style>{`
+          .reorder-item {
+            transition: transform 0.2s cubic-bezier(0.2, 0, 0.2, 1), opacity 0.2s ease, box-shadow 0.2s ease;
+          }
+          .is-dragging {
+            opacity: 0.4 !important;
+            transform: scale(0.98) rotate(1deg) !important;
+            box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.3), 0 8px 10px -6px rgb(0 0 0 / 0.3) !important;
+            z-index: 50 !important;
+          }
+        `}</style>
       </div>
     );
   }
 
   return (
-    <div className="space-y-8">
-      <style>{`
-        .reorder-item {
-          transition: transform 0.2s cubic-bezier(0.2, 0, 0.2, 1), opacity 0.2s ease, box-shadow 0.2s ease;
-        }
-        .is-dragging {
-          opacity: 0.4 !important;
-          transform: scale(0.98) rotate(1deg) !important;
-          box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.3), 0 8px 10px -6px rgb(0 0 0 / 0.3) !important;
-          z-index: 50 !important;
-        }
-      `}</style>
+    <div className="space-y-8 px-4 sm:px-0 mx-auto">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 border-b border-neutral-800 pb-6">
         <div className="flex items-center gap-5">
           <div className="p-3 bg-neutral-900 border border-neutral-800 rounded-2xl shadow-lg">
@@ -1640,6 +1629,17 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
           })}
         </div>
       )}
+      <style>{`
+        .reorder-item {
+          transition: transform 0.2s cubic-bezier(0.2, 0, 0.2, 1), opacity 0.2s ease, box-shadow 0.2s ease;
+        }
+        .is-dragging {
+          opacity: 0.4 !important;
+          transform: scale(0.98) rotate(1deg) !important;
+          box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.3), 0 8px 10px -6px rgb(0 0 0 / 0.3) !important;
+          z-index: 50 !important;
+        }
+      `}</style>
     </div>
   );
 };

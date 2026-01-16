@@ -365,7 +365,7 @@ const UtilitiesPanel: React.FC<UtilitiesPanelProps> = ({
   const timeObj = formatElapsedTime(stopwatch.elapsed);
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500 pb-12 sm:pb-0 max-w-5xl mx-auto">
+    <div className="space-y-8 animate-in fade-in duration-500 pb-12 sm:pb-0 px-4 sm:px-0 max-w-5xl mx-auto">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 border-b border-neutral-800 pb-6">
         <div className="flex items-center gap-5">
           <div className="p-3 bg-neutral-900 border border-neutral-800 rounded-2xl shadow-lg">
