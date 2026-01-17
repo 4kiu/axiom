@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   IdentityState, 
@@ -90,7 +89,13 @@ const LogAction: React.FC<LogActionProps> = ({
   const [selectedPlanId, setSelectedPlanId] = useState<string | undefined>(
     editingEntry?.planId ?? initialPlanId
   );
-  const [energy, setEnergy] = useState<number>(editingEntry?.energy ?? 3);
+  
+  // Initialize energy based on identity
+  const [energy, setEnergy] = useState<number>(() => {
+    if (editingEntry?.identity === IdentityState.REST) return 0;
+    return editingEntry?.energy ?? 3;
+  });
+
   const [notes, setNotes] = useState(editingEntry?.notes ?? '');
   const [selectedTags, setSelectedTags] = useState<ContextTag[]>(editingEntry?.tags ?? []);
   
@@ -130,7 +135,7 @@ const LogAction: React.FC<LogActionProps> = ({
     onSave({
       timestamp: new Date(sessionTime).getTime(),
       identity: selectedIdentity,
-      energy,
+      energy: isRestSelected ? 0 : energy,
       notes,
       tags: selectedTags,
       planId: isRestSelected ? undefined : selectedPlanId
@@ -152,9 +157,13 @@ const LogAction: React.FC<LogActionProps> = ({
       <button
         key={id}
         onClick={() => {
+          const wasRest = selectedIdentity === IdentityState.REST;
           setSelectedIdentity(id);
           if (id === IdentityState.REST) {
             setSelectedPlanId(undefined);
+            setEnergy(0);
+          } else if (wasRest) {
+            setEnergy(3); // Reset to default when switching away from Rest
           }
         }}
         className={`relative flex flex-col p-4 rounded-xl border text-left transition-all overflow-hidden
@@ -292,14 +301,14 @@ const LogAction: React.FC<LogActionProps> = ({
           </div>
         </section>
 
-        <section>
+        <section className={isRestSelected ? "opacity-40 pointer-events-none select-none" : ""}>
           <div className="flex justify-between items-center mb-3">
             <label className="text-[10px] font-mono text-neutral-500 uppercase tracking-widest">Training Intensity</label>
             <span className="text-lg font-bold text-emerald-500">{energy}/5</span>
           </div>
           <input 
             type="range" 
-            min="1" 
+            min={isRestSelected ? "0" : "1"} 
             max="5" 
             value={energy} 
             onChange={(e) => setEnergy(parseInt(e.target.value))}

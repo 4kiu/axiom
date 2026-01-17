@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { WorkoutEntry, WorkoutPlan } from '../types.ts';
+import { WorkoutEntry, WorkoutPlan, IdentityState } from '../types.ts';
 import { format, isAfter } from 'date-fns';
 import { BarChart2, Activity, Zap, Target, Shield, LayoutGrid, Flame, Cpu } from 'lucide-react';
 
@@ -26,7 +26,9 @@ type RangeType = 7 | 14 | 30 | 60 | 'all';
 
 /**
  * Refined IntensityGraph component
- * Clean, centered, and grid-less for maximum focus on telemetry.
+ * - Snaps to data for perfect centering.
+ * - Filters out FUTURE logs.
+ * - Hides data points (circles) if there are > 30 entries to prevent clutter.
  */
 const IntensityGraph: React.FC<{ entries: WorkoutEntry[], days: RangeType }> = ({ entries, days }) => {
   const PAD_X = 12; 
@@ -36,23 +38,41 @@ const IntensityGraph: React.FC<{ entries: WorkoutEntry[], days: RangeType }> = (
 
   const dataPoints = useMemo(() => {
     const now = new Date();
-    const startDate = days === 'all' 
-      ? new Date(Math.min(...entries.map(e => e.timestamp), Date.now()))
-      : startOfDay(subDays(now, (typeof days === 'number' ? days : 7) - 1));
     
-    // Use >= comparison to include the first entry when days === 'all'
-    const filtered = entries
-      .filter(e => e.timestamp >= startDate.getTime())
+    // 1. FILTER: 
+    // - Remove REST days
+    // - Remove FUTURE logs (e.timestamp <= now)
+    const activeEntries = entries
+      .filter(e => 
+        e.identity !== IdentityState.REST && 
+        e.timestamp <= now.getTime()
+      )
       .sort((a, b) => a.timestamp - b.timestamp);
 
-    if (filtered.length === 0) return [];
+    if (activeEntries.length === 0) return [];
 
-    const minTs = startDate.getTime();
-    const maxTs = now.getTime();
-    const rangeTs = Math.max(maxTs - minTs, 1);
+    // 2. CUTOFF: Determine the strict time window
+    let cutoffTs: number;
+    if (days === 'all') {
+      cutoffTs = 0; 
+    } else {
+      cutoffTs = startOfDay(subDays(now, (typeof days === 'number' ? days : 7) - 1)).getTime();
+    }
 
-    return filtered.map(e => ({
-      x: PAD_X + ((e.timestamp - minTs) / rangeTs) * GRAPH_WIDTH,
+    // 3. SELECT DATA: Filter entries that fall within this window
+    const visibleEntries = activeEntries.filter(e => e.timestamp >= cutoffTs);
+
+    if (visibleEntries.length === 0) return [];
+
+    // 4. SNAP TO DATA: Determine Start/End based on VISIBLE data points
+    const startTs = visibleEntries[0].timestamp;
+    const endTs = visibleEntries[visibleEntries.length - 1].timestamp;
+
+    // Prevent division by zero
+    const rangeTs = Math.max(endTs - startTs, 1000 * 60 * 60 * 24); 
+
+    return visibleEntries.map(e => ({
+      x: PAD_X + ((e.timestamp - startTs) / rangeTs) * GRAPH_WIDTH,
       y: PAD_Y + (1 - (e.energy - 1) / 4) * GRAPH_HEIGHT,
       energy: e.energy,
       date: e.timestamp
@@ -100,7 +120,8 @@ const IntensityGraph: React.FC<{ entries: WorkoutEntry[], days: RangeType }> = (
         <path d={areaPath} fill="url(#fillGradient)" className="animate-in fade-in duration-1000" />
         <path d={linePath} fill="none" stroke="url(#traceGradient)" strokeWidth="0.8" strokeLinecap="round" strokeLinejoin="round" className="drop-shadow-[0_0_12px_rgba(16,185,129,0.3)]" />
         
-        {dataPoints.map((p, i) => (
+        {/* Only render data circles if density is low (<= 14 points) */}
+        {dataPoints.length <= 14 && dataPoints.map((p, i) => (
           <g key={i} className="group/node">
             <circle cx={p.x} cy={p.y} r="1.2" className="fill-black stroke-emerald-500 stroke-[0.4] transition-all group-hover/node:r-2 cursor-crosshair" />
             <circle cx={p.x} cy={p.y} r="0.4" className="fill-emerald-400 opacity-40 group-hover/node:opacity-100" />
@@ -136,8 +157,8 @@ const Statistics: React.FC<StatisticsProps> = ({ entries, plans }) => {
       ? new Date(Math.min(...entries.map(e => e.timestamp), Date.now()))
       : startOfDay(subDays(now, (typeof range === 'number' ? range : 7) - 1));
     
-    // Filtered entries for range-specific stats
-    const filtered = entries.filter(e => e.timestamp >= startDate.getTime());
+    // Filtered entries for range-specific stats - Excluding REST from Performance Telemetry
+    const filtered = entries.filter(e => e.timestamp >= startDate.getTime() && e.identity !== IdentityState.REST);
     const totalLogs = filtered.length;
     
     // avg Intensity based on selected range
@@ -152,7 +173,7 @@ const Statistics: React.FC<StatisticsProps> = ({ entries, plans }) => {
       if (!planScores[e.planId]) planScores[e.planId] = { count: 0, energyTotal: 0, identityTotal: 0 };
       planScores[e.planId].count++;
       planScores[e.planId].energyTotal += e.energy;
-      // Invert identity so Overdrive(0) has more weight (value 4) has more weight (value 4) than Survival(3) (value 1)
+      // Invert identity so Overdrive(0) has more weight (value 4) than Survival(3) (value 1)
       planScores[e.planId].identityTotal += (4 - e.identity);
     });
 
@@ -184,12 +205,12 @@ const Statistics: React.FC<StatisticsProps> = ({ entries, plans }) => {
         const ts = cursor.getTime();
         const entry = entries.find(e => startOfDay(e.timestamp).getTime() === ts);
         if (entry) {
-          if (entry.identity === 3) { // Survival breaks streak
+          if (entry.identity === IdentityState.SURVIVAL) { // Survival breaks streak
             currentStreakCount = 0;
-          } else if (entry.identity !== 4) { // OD/Normal/Maintenance increment
+          } else if (entry.identity !== IdentityState.REST) { // OD/Normal/Maintenance increment
             currentStreakCount++;
           }
-          // Rest (4) bridges: no increment, but no break
+          // Rest (IdentityState.REST) bridges: no increment, but no break
         } else {
           currentStreakCount = 0; // Empty day breaks streak
         }
@@ -254,8 +275,8 @@ const Statistics: React.FC<StatisticsProps> = ({ entries, plans }) => {
             <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 sm:p-5 shadow-xl flex flex-col justify-between group hover:border-neutral-700 transition-colors relative h-32 lg:h-full">
               <div>
                 <p className="text-[9px] font-mono text-neutral-500 uppercase tracking-widest mb-1 lg:mb-10">Session Volume</p>
-                <div className="absolute bottom-[11px] left-4">
-                  <p className="text-2xl sm:text-3xl font-black text-white">{stats.totalLogs}</p>
+                <div className="absolute bottom-1 left-4">
+                  <p className="text-2xl sm:text-3xl font-black text-white">{stats.totalLogs}<span className="text-[10px] font-mono text-neutral-900 ml-1">?</span></p>
                 </div>
               </div>
               <div className="absolute bottom-4 right-4 text-rose-500 opacity-40 group-hover:opacity-100 transition-opacity">
@@ -275,11 +296,11 @@ const Statistics: React.FC<StatisticsProps> = ({ entries, plans }) => {
               </div>
             </div>
 
-            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 sm:p-5 shadow-xl flex flex-col justify-between group hover:border-neutral-700 transition-colors relative h-32 lg:h-full overflow-hidden">
+            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 sm:p-5 shadow-xl flex flex-col justify-between group hover:border-neutral-700 transition-colors relative h-32 lg:h-full">
               <div>
                 <p className="text-[9px] font-mono text-neutral-500 uppercase tracking-widest mb-1 lg:mb-10">Top Blueprint</p>
-                <div className="absolute bottom-[11px] left-4">
-                  <p className="text-lg sm:text-xl font-black text-white truncate max-w-full leading-tight pr-2">{stats.topPlanName}</p>
+                <div className="absolute bottom-1 left-4">
+                  <p className="text-2xl sm:text-3xl font-black text-white">{stats.topPlanName}<span className="text-[10px] font-mono text-neutral-900 ml-1">?</span></p>
                 </div>
               </div>
               <div className="absolute bottom-4 right-4 text-emerald-500 opacity-40 group-hover:opacity-100 transition-opacity">

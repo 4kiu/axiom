@@ -103,9 +103,9 @@ const WeeklyGrid: React.FC<WeeklyGridProps> = ({
                 {meta.label}
             </div>
             
-            {plan && (
+            {(plan || (entry.identity === IdentityState.REST && isCompact)) && (
               <div className={`text-[8px] sm:text-[11px] font-mono text-white/70 truncate w-full px-0.5 mt-1 leading-tight border-t border-white/20 pt-1`}>
-                  {plan.name}
+                  {plan ? plan.name : 'Rest'}
               </div>
             )}
           </div>
