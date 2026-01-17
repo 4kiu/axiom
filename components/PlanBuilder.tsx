@@ -312,6 +312,7 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
 
   // Sync reorder index via touch for mobile
   const touchDragIdx = useRef<number | null>(null);
+  const lastAutoScroll = useRef<number>(0);
 
   // Synchronize internal state with external navigation state for back-gesture support
   useEffect(() => {
@@ -522,16 +523,25 @@ const PlanBuilder: React.FC<PlanBuilderProps> = ({
     if (touchDragIdx.current === null) return;
     
     const touch = e.touches[0];
-    const scrollThreshold = 100;
-    const scrollSpeed = 15;
+    const scrollThreshold = 80;
+    
+    // --- SCROLL LOGIC ---
+    const now = Date.now();
+    // Only run scroll logic if 20ms has passed since last scroll (Throttling)
+    if (now - lastAutoScroll.current > 20) {
+      const scrollSpeedUp = 10;   // Adjusted for 50fps (approx 500px/sec)
+      const scrollSpeedDown = 10; 
 
-    // Auto-scrolling logic
-    if (touch.clientY < scrollThreshold) {
-      window.scrollBy(0, -scrollSpeed);
-    } else if (touch.clientY > window.innerHeight - scrollThreshold) {
-      window.scrollBy(0, scrollSpeed);
+      if (touch.clientY < scrollThreshold) {
+        window.scrollBy(0, -scrollSpeedUp);
+        lastAutoScroll.current = now;
+      } else if (touch.clientY > window.innerHeight - scrollThreshold) {
+        window.scrollBy(0, scrollSpeedDown);
+        lastAutoScroll.current = now;
+      }
     }
 
+    // --- DRAG / REORDER LOGIC (Runs every frame for smoothness) ---
     const targetElement = document.elementFromPoint(touch.clientX, touch.clientY);
     const itemContainer = targetElement?.closest('[data-index]');
     if (!itemContainer) return;
